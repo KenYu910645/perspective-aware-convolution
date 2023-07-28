@@ -6,7 +6,7 @@ cfg = edict()
 cfg.obj_types = ['Car']
 cfg.exp = 'baseline'
 
-## trainer
+# trainer
 trainer = edict(
     gpu = 0,
     max_epochs = 30,
@@ -24,36 +24,9 @@ cfg.trainer = trainer
 path = edict()
 path.data_path = 'dataset/kitti/training'# "/data/kitti_obj/training" # used in visualDet3D/data/.../dataset
 path.test_path = 'dataset/kitti/testing' # ""
-path.visualDet3D_path = 'visualDet3D' # "/path/to/visualDet3D/visualDet3D" # The path should point to the inner subfolder
-path.project_path = 'exp_output/pac_new' # "/path/to/visualDet3D/workdirs" # or other path for pickle files, checkpoints, tensorboard logging and output files.
+# path.visualDet3D_path = 'visualDet3D' # "/path/to/visualDet3D/visualDet3D" # The path should point to the inner subfolder
+# path.project_path = 'exp_output/pac_new' # "/path/to/visualDet3D/workdirs" # or other path for pickle files, checkpoints, tensorboard logging and output files.
 # path.pretrained_checkpoint = "/home/lab530/KenYu/visualDet3D/exp_output/mixup/kitti_mixup_1/Mono3D/checkpoint/GroundAwareYolo3D_latest.pth"
-
-if not os.path.isdir(path.project_path):
-    os.mkdir(path.project_path)
-path.project_path = os.path.join(path.project_path, 'Mono3D')
-if not os.path.isdir(path.project_path):
-    os.mkdir(path.project_path)
-
-path.log_path = os.path.join(path.project_path, "log")
-if not os.path.isdir(path.log_path):
-    os.mkdir(path.log_path)
-
-path.checkpoint_path = os.path.join(path.project_path, "checkpoint")
-if not os.path.isdir(path.checkpoint_path):
-    os.mkdir(path.checkpoint_path)
-
-path.preprocessed_path = os.path.join(path.project_path, "output")
-if not os.path.isdir(path.preprocessed_path):
-    os.mkdir(path.preprocessed_path)
-
-path.train_imdb_path = os.path.join(path.preprocessed_path, "training")
-if not os.path.isdir(path.train_imdb_path):
-    os.mkdir(path.train_imdb_path)
-
-path.val_imdb_path = os.path.join(path.preprocessed_path, "validation")
-if not os.path.isdir(path.val_imdb_path):
-    os.mkdir(path.val_imdb_path)
-
 cfg.path = path
 
 ## optimizer
@@ -78,17 +51,17 @@ cfg.scheduler = scheduler
 
 ## data
 data = edict(
-    batch_size = 8, # 8
-    num_workers = 8, #  8
+    batch_size = 8,
+    num_workers = 8,
     rgb_shape = (288, 1280, 3),
     train_dataset = "KittiMonoDataset",
     val_dataset   = "KittiMonoDataset",
     test_dataset  = "KittiMonoTestDataset",
-    train_split_file = os.path.join(cfg.path.visualDet3D_path, 'data', 'kitti', 'kitti_anchor_gen_split', 'train_all.txt'),
-    val_split_file   = os.path.join(cfg.path.visualDet3D_path, 'data', 'kitti', 'kitti_anchor_gen_split', 'val_all.txt'),
+    train_split_file = os.path.join('visualDet3D/data/kitti/kitti_anchor_gen_split/train_all.txt'),
+    val_split_file   = os.path.join('visualDet3D/data/kitti/kitti_anchor_gen_split/val_all.txt'),
     use_right_image = False,
-    max_occlusion = 999, # 2, 999
-    min_z        =  -999, # 3, -999,
+    max_occlusion =  1000, # 2
+    min_z         = -1000, # 3
     is_overwrite_anchor_file = False,
 )
 
@@ -167,7 +140,6 @@ head_layer = edict(
 )
 detector.head = edict(
     num_regression_loss_terms=13,
-    preprocessed_path=path.preprocessed_path,
     num_classes     = len(cfg.obj_types),
     anchors_cfg     = anchors,
     layer_cfg       = head_layer,

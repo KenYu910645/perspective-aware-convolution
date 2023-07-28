@@ -1,19 +1,8 @@
-
-
+RTX Geforce 3090
+Ubuntu 20.02
 conda create -n pac python=3.10
 conda activate pac
 conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia
-
-pip install opencv-python
-pip install scikit-image
-pip install matplotlib
-
-
-
-
-
-# cudatoolkit               10.2.89                
-# pytorch                   1.11.0 
 
 # Visual 3D Detection Package:
 
@@ -74,7 +63,7 @@ Reference: this repo borrows codes and ideas from [retinanet](https://github.com
 ### Environment setup. 
 
 ```bash
-pip3 install -r requirement.txt
+pip install -r requirement.txt
 ```
 or manually check dependencies.
 

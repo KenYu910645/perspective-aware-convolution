@@ -4,3 +4,4 @@ anchor/
 *.pth
 exp_output/*
 dataset/*
+*__pycache__/

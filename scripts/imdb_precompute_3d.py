@@ -4,7 +4,6 @@ import pickle
 import cv2
 from copy import deepcopy
 import torch
-import shutil
 
 from _path_init import *
 from visualDet3D.networks.heads.anchors import Anchors, load_from_pkl_or_npy, generate_anchors
@@ -38,14 +37,6 @@ def process_train_val_file(cfg):
     return train_lines, val_lines
 
 def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 'training', time_display_inter=100):
-    save_dir = os.path.join(cfg.path.preprocessed_path, data_split)
-    if not os.path.isdir(save_dir):
-        os.makedirs(save_dir)
-
-    if data_split == 'training':
-        disp_dir = os.path.join(save_dir, 'disp')
-        if not os.path.isdir(disp_dir):
-            os.mkdir(disp_dir)
 
     N = len(index_names)
     frames = [None] * N
@@ -59,9 +50,6 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
     total_objects        = [0 for _ in range(len(cfg.obj_types))]
     total_usable_objects = [0 for _ in range(len(cfg.obj_types))]
     
-    # cfg.detector.head.anchors_cfg.external_anchor_path = getattr(cfg.detector.head.anchors_cfg, 'external_anchor_path', "")
-    print(f"[imdb_precompute_3d.py] external_anchor_path = {external_anchor_path}")
-
     if external_anchor_path != "":
         anchor_fns = [os.path.join(external_anchor_path, fns) for fns in os.listdir(external_anchor_path)]
         bbox2d = load_from_pkl_or_npy( next(f for f in anchor_fns if "2dbbox" in f) )
@@ -87,8 +75,7 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
             num_covered_gt = np.zeros([len(cfg.obj_types), len_level * len_scale, len_ratios]) # [1, 16, 2]
             sum_covered_gt = np.zeros([len(cfg.obj_types), len_level * len_scale, len_ratios, 3])  # [z, sin, cos]
             squ_covered_gt = np.zeros([len(cfg.obj_types), len_level * len_scale, len_ratios, 3], dtype=np.float64)
-            
-            print(f"num_covered_gt = {num_covered_gt.shape}]") # (1, 48, 2)
+            # print(f"num_covered_gt = {num_covered_gt.shape}]") # (1, 48, 2)
         else:
             num_covered_gt = np.zeros([len(cfg.obj_types), num_external_anchor]) # [1, 32]
             sum_covered_gt = np.zeros([len(cfg.obj_types), num_external_anchor, 3]) # [1, 32, 3],  [z, sin, cos]
@@ -103,16 +90,16 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
             is_copy_paste = True
             copy_paste_use_seg = d['keywords']['use_seg']
     
-    print(f"[imdb_precompute_3d.py] is_copy_paste = {is_copy_paste}")
+    
     instance_pool = []
     cover_bbox2d_gts = []
     misss_bbox2d_gts = []
     for i, index_name in enumerate(index_names):
-        
-        ######################################
-        ### Build copy paste instance_pool ###
-        ######################################
         if data_split == 'training' and is_copy_paste:
+            print(f"[imdb_precompute_3d.py] Enable copy_paste instance pool building")
+            ######################################
+            ### Build copy paste instance_pool ###
+            ######################################
             P2   = kitti_calib_file_parser(os.path.join(data_root_dir, "calib", f"{index_name}.txt"))
             with open(os.path.join(data_root_dir, "label_2", f"{index_name}.txt")) as f:
                 lines = f.read().splitlines()
@@ -151,12 +138,10 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
         data_frame.calib = calib
         if data_split == 'training' and anchor_prior:
             original_image = image.copy()
-            # baseline = (calib.P2[0, 3] - calib.P3[0, 3]) / calib.P2[0, 0]
             
             # Augument the images
             image, P2, label = preprocess(original_image, p2=deepcopy(calib.P2), labels=deepcopy(data_frame.label))
-            _,  P3           = preprocess(original_image, p2=deepcopy(calib.P3))
-
+            
             ## Computing statistic for positive anchors
             if len(data_frame.label) > 0:
                 anchors, _ = anchor_manager(image[np.newaxis].transpose([0,3,1,2]), torch.tensor(P2).reshape([-1, 3, 4]))
@@ -266,13 +251,6 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
                 avg = np.concatenate([avg, whl_avg], axis=1) # (32, 6)
                 std = np.concatenate([std, whl_std], axis=1) # (32, 6)
             
-            cfg.data.anchor_mean_std_path     = getattr(cfg.data, 'anchor_mean_std_path', "/home/lab530/KenYu/visualDet3D/anchor/max_occlusion_2")
-            cfg.data.is_overwrite_anchor_file = getattr(cfg.data, 'is_overwrite_anchor_file', False)
-            cfg.data.is_use_anchor_file       = getattr(cfg.data, 'is_use_anchor_file', False)
-            
-            mean_file_dst = os.path.join(save_dir,'anchor_mean_{}.npy'.format(cfg.obj_types[j]))
-            std_file_dst  = os.path.join(save_dir,'anchor_std_{}.npy'.format(cfg.obj_types[j]))
-            
             # Output convered and missed groundtrue for visualization
             anchor_prior_calculation_result = {}
             anchor_prior_calculation_result['cover_bbox2d_gts'] = torch.cat(cover_bbox2d_gts, dim=0).cpu().numpy()
@@ -286,22 +264,9 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
             #     pickle.dump(anchor_prior_calculation_result, f)
             #     print(f"[imdb_precompute_3d.py] Saved anchor_prior_calculation_result")
             
-            if not cfg.data.is_use_anchor_file:
-                # Use anchor that generate with this dataset
-                np.save(mean_file_dst, avg)
-                np.save(std_file_dst, std)
-                if cfg.data.is_overwrite_anchor_file:
-                    shutil.copyfile(mean_file_dst, cfg.data.anchor_mean_std_path + "_mean.npy")
-                    shutil.copyfile(std_file_dst,  cfg.data.anchor_mean_std_path + "_std.npy")
-                    print(f"Save anchor mean file to {cfg.data.anchor_mean_std_path}_mean.npy")
-                    print(f"Save anchor std file to {cfg.data.anchor_mean_std_path}_std.npy")
-            else:
-                mean_file_src = cfg.data.anchor_mean_std_path + "_mean.npy"
-                std_file_src  = cfg.data.anchor_mean_std_path + "_std.npy"
-                shutil.copyfile(mean_file_src, mean_file_dst)
-                shutil.copyfile(std_file_src,  std_file_dst)
-                print(f"Using mean_file from {mean_file_src}")
-                print(f"Using std_file from {std_file_src}")
+            # Save anchor file for later training 
+            np.save(os.path.join(save_dir,'anchor_mean_{}.npy'.format(cfg.obj_types[j])), avg)
+            np.save(os.path.join(save_dir,'anchor_std_{}.npy' .format(cfg.obj_types[j])), std)
 
     ######################################
     ### Save Scene-Aware Instance Pool ###
@@ -323,46 +288,53 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
     pickle.dump(frames, open(pkl_file, 'wb'))
     print("{} split finished precomputing".format(data_split))
 
-def main(config:str="config/config.py"):
+def create_dir(path):
+    if not os.path.isdir(path):
+        os.mkdir(path)
+
+def main(cfg_path:str="config/project_name/exp_name.py"):
+    print(f"cfg_path = {cfg_path}")
+    assert len(cfg_path.split('/')) == 3, "config_path must be in the format of config/project_name/exp_name.py" 
     
-    cfg = cfg_from_file(config)
-    
+    cfg = cfg_from_file(cfg_path)
+    cfg.path.project_path      = os.path.join('exp_output', cfg_path.split('/')[1], cfg_path.split('/')[2])
+    cfg.path.log_path          = os.path.join(cfg.path.project_path, "log")
+    cfg.path.checkpoint_path   = os.path.join(cfg.path.project_path, "checkpoint")
+    cfg.path.preprocessed_path = os.path.join(cfg.path.project_path, "output")
+    cfg.path.train_imdb_path   = os.path.join(cfg.path.project_path, "output", "training")
+    cfg.path.train_disp_path   = os.path.join(cfg.path.project_path, "output", "training", "disp")
+    cfg.path.val_imdb_path     = os.path.join(cfg.path.project_path, "output", "validation")
+
+    create_dir(cfg.path.project_path)
+    create_dir(cfg.path.log_path)
+    create_dir(cfg.path.checkpoint_path)
+    create_dir(cfg.path.preprocessed_path)
+    create_dir(cfg.path.train_imdb_path)
+    create_dir(cfg.path.val_imdb_path)
+    create_dir(cfg.path.train_disp_path)
+
     torch.cuda.set_device(cfg.trainer.gpu)
-    
-    # original 
-    cfg.data.max_occlusion = getattr(cfg.data, 'max_occlusion', 2)
-    cfg.data.min_z         = getattr(cfg.data, 'min_z', 3)
-    print(f"max_occlusion = {cfg.data.max_occlusion}")
-    print(f"min_z = {cfg.data.min_z}")
     
     is_copy_paste = any(d['type_name'] == 'CopyPaste' for d in cfg.data.train_augmentation)
     
-    time_display_inter = 100 # define the inverval displaying time consumed in loop
     data_root_dir = cfg.path.data_path # the base directory of training dataset
-    calib_path = os.path.join(data_root_dir, 'calib') 
-    list_calib = os.listdir(calib_path)
-    N = len(list_calib)
     
     # Load training datatset
-    output_dict = {
-                "calib": True,
-                "image": True,
-                "label": True,
-                "velodyne": False,
-                "depth": is_copy_paste,
-            }
+    output_dict = {"calib": True,
+                   "image": True,
+                   "label": True,
+                   "velodyne": False,
+                   "depth": is_copy_paste,}
     train_names, val_names = process_train_val_file(cfg)
-    read_one_split(cfg, train_names, data_root_dir, output_dict, 'training', time_display_inter)
+    read_one_split(cfg, train_names, data_root_dir, output_dict, 'training')
     
     # Load validation datatset
-    output_dict = {
-                "calib": True,
-                "image": False,
-                "label": True,
-                "velodyne": False,
-                "depth": False,
-            }
-    read_one_split(cfg, val_names, data_root_dir, output_dict, 'validation', time_display_inter)
+    output_dict = {"calib": True,
+                   "image": False,
+                   "label": True,
+                   "velodyne": False,
+                   "depth": False,}
+    read_one_split(cfg, val_names, data_root_dir, output_dict, 'validation')
 
     print("Preprocessing finished")
 

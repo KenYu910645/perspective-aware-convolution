@@ -1,6 +1,3 @@
-"""
-    Script for launching training process
-"""
 import os
 from easydict import EasyDict
 from fire import Fire

@@ -6,7 +6,7 @@ cfg = edict()
 cfg.obj_types = ['Car']
 cfg.exp = 'baseline'
 
-## trainer
+# trainer
 trainer = edict(
     gpu = 0,
     max_epochs = 30,

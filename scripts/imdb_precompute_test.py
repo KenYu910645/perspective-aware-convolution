@@ -1,18 +1,12 @@
-from copy import deepcopy
 import torch
-import cv2
 import time
 import pickle
 import os
-import numpy as np
-import ctypes
 
 from _path_init import *
 from visualDet3D.utils.timer import Timer
 from visualDet3D.utils.utils import cfg_from_file
 from visualDet3D.data.kitti.kittidata import KittiData
-
-
 
 def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split='training', time_display_inter=100):
     N = len(index_names)

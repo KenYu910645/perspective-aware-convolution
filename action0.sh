@@ -2,16 +2,16 @@
 ### Preprocessing ###
 #####################
 # train split 
-# python3 scripts/imdb_precompute_3d.py --config config/pac_new/pac_module.py
+python scripts/imdb_precompute_3d.py --cfg_path config/pac_new/pac_module.py
 
 # test split, for inference.
-# python3 scripts/imdb_precompute_test.py --config=$CONFIG_PATH
+# python3 scripts/imdb_precompute_test.py --cfg_path=$CONFIG_PATH
 
 ################
 ### Training ###
 ################
 
-./launchers/train.sh config/pac_new/pac_module.py 0 pac_module
+# ./launchers/train.sh config/pac_new/pac_module.py 0 pac_module
 
 # EXP_NAME=('pac_module')
 
