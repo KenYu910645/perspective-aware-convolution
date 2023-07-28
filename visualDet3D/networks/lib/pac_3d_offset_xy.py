@@ -8,8 +8,7 @@ from math import sqrt
 import sys
 import torch.nn.functional as F
 
-sys.path.insert(0, "/home/lab530/KenYu/ml_toolkit/kitti/")
-from util_kitti import kitti_calib_file_parser
+from visualDet3D.utils.util_kitti import kitti_calib_file_parser
 
 # Image files 
 IMG_DIR = "/home/lab530/KenYu/kitti/training/image_2/"

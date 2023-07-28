@@ -1,3 +1,6 @@
 anchor/
 *.pkl
 *.npy
+*.pth
+exp_output/*
+dataset/*

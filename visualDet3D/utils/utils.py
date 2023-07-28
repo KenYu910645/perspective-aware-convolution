@@ -8,9 +8,7 @@ import shutil
 import importlib
 from easydict import EasyDict
 
-import sys
-sys.path.insert(0, "/home/lab530/KenYu/ml_toolkit/noam/")
-from noam import noam_encode
+from visualDet3D.noam.noam import noam_encode
 
 class LossLogger():
     def __init__(self, recorder, data_split='train'):

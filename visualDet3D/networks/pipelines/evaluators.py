@@ -1,66 +1,14 @@
 import os
 from tqdm import tqdm
 from easydict import EasyDict
-from typing import Sized, Sequence
-import numpy as np
-import cv2
+from typing import Sized
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from visualDet3D.networks.utils.registry import PIPELINE_DICT
 from visualDet3D.evaluator.kitti.evaluate import evaluate
-from visualDet3D.evaluator.kitti_depth_prediction.evaluate_depth import evaluate_depth
 from visualDet3D.networks.utils.utils import BBox3dProjector, BackProjection
 from visualDet3D.data.kitti.utils import write_result_to_file
-from visualDet3D.networks.lib.fast_utils.hill_climbing import post_opt
-
-@PIPELINE_DICT.register_module
-@torch.no_grad()
-def evaluate_kitti_depth(cfg:EasyDict, 
-                       model:nn.Module,
-                       dataset_val:Sequence,
-                       writer:SummaryWriter,
-                       epoch_num:int, 
-                       result_path_split='validation'
-                       ):
-    model.eval()
-    result_path = os.path.join(cfg.path.preprocessed_path, result_path_split, 'data')
-    if os.path.isdir(result_path):
-        os.system("rm -r {}".format(result_path))
-        print("clean up the recorder directory of {}".format(result_path))
-    os.mkdir(result_path)
-    print("rebuild {}".format(result_path))
-    for index in tqdm(range(len(dataset_val))):
-        data = dataset_val[index]
-        collated_data = dataset_val.collate_fn([data])
-        image, K = collated_data
-        return_dict = model(
-                [image.cuda().float(), image.new(K)]
-            )
-        depth = return_dict["target"][0, 0]
-        depth_uint16 = (depth * 256).cpu().numpy().astype(np.uint16)
-        w, h = data['original_shape'][1], data['original_shape'][0]
-        height_to_pad = h - depth_uint16.shape[0]
-        depth_uint16 = np.pad(depth_uint16, [(height_to_pad, 0), (0, 0)], mode='edge')
-        depth_uint16 = cv2.resize(depth_uint16, (w, h))
-        depth_uint16[depth_uint16 == 0] = 1 
-        image_name = "%010d.png" % index
-        cv2.imwrite(os.path.join(result_path, image_name), depth_uint16)
-
-    if "is_running_test_set" in cfg and cfg["is_running_test_set"]:
-        print("Finish evaluation.")
-        return
-    result_texts = evaluate_depth(
-        label_path = os.path.join(cfg.path.validation_path, 'groundtruth_depth'),
-        result_path = result_path
-    )
-    for index, result_text in enumerate(result_texts):
-        if writer is not None:
-            writer.add_text("validation result {}".format(index), result_text.replace(' ', '&nbsp;').replace('\n', '  \n'), epoch_num + 1)
-        print(result_text, end='')
-    print()
 
 @PIPELINE_DICT.register_module
 @torch.no_grad()

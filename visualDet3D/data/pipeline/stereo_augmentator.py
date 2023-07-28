@@ -22,19 +22,14 @@ from visualDet3D.networks.utils.utils import BBox3dProjector
 from visualDet3D.utils.utils import draw_3D_box, theta2alpha_3d
 from visualDet3D.networks.utils.registry import AUGMENTATION_DICT
 from visualDet3D.data.kitti.kittidata import KittiObj
-import torch
 from .augmentation_builder import Compose, build_single_augmentator
 import random as random_pkg
 import pickle
 import copy
 from math import sqrt
 
-import sys
-sys.path.insert(0, "/home/lab530/KenYu/ml_toolkit/data_augmentation/3Dmixup/")
-from copy_paste import CopyPaste_Object
-
-sys.path.insert(0, "/home/lab530/KenYu/ml_toolkit/kitti")
-from iou_3d import get_3d_box, box3d_iou, box2d_iou, box2d_iog
+# from visualDet3D.data_augmentation.copy_paste import CopyPaste_Object
+from visualDet3D.utils.iou_3d import get_3d_box, box3d_iou, box2d_iou, box2d_iog
 
 # Added by spiderkiller
 @AUGMENTATION_DICT.register_module

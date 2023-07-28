@@ -1,7 +1,8 @@
 import numpy as np
 from numba import jit
+import time # for testing numba
 
-@jit
+@jit(nopython=True)
 def bbox2d_area(bbox2d):
     """
         input:
@@ -16,7 +17,7 @@ def bbox2d_area(bbox2d):
     area = dx * dy
     return area
 
-@jit
+@jit(nopython=True)
 def iou_2d_combination(box2d_0, box2d_1):
     """
         input:
@@ -36,7 +37,7 @@ def iou_2d_combination(box2d_0, box2d_1):
         result[i] = iou_2d(bbox_2d_repeated, box2d_1)
     return result
 
-@jit
+@jit(nopython=True)
 def iou_2d(box2d_0, box2d_1):
     """
         input:
@@ -65,7 +66,7 @@ def iou_2d(box2d_0, box2d_1):
             result[i] = area / (area_0[i] + area_1[i] - area)
     return result
 
-@jit
+@jit(nopython=True)
 def xyxy2xywh(box2d):
     """
         input   : [n, 4] [x1, y1, x2, y2]
@@ -84,7 +85,25 @@ def xyxy2xywh(box2d):
     result[:, 3] = width_y
     return result
 
-@jit
+def xyxy2xywh_noJit(box2d):
+    """
+        input   : [n, 4] [x1, y1, x2, y2]
+        return  : [n, 4] [x, y, w, h]
+
+        numpy accelerated
+    """
+    center_x = 0.5 * (box2d[:, 0] + box2d[:, 2])
+    center_y = 0.5 * (box2d[:, 1] + box2d[:, 3])
+    width_x  = box2d[:, 2] - box2d[:, 0]
+    width_y  = box2d[:, 3] - box2d[:, 1]
+    result = np.zeros_like(box2d)
+    result[:, 0] = center_x
+    result[:, 1] = center_y
+    result[:, 2] = width_x
+    result[:, 3] = width_y
+    return result
+
+@jit(nopython=True)
 def xywh2xyxy(box2d):
     """
         input   :  [n, 4] [x, y, w, h]
@@ -100,7 +119,7 @@ def xywh2xyxy(box2d):
     result[:, 3] = box2d[:, 1] + halfh
     return result
 
-@jit
+@jit(nopython=True)
 def compute_center_targets(gts, anchors, epsilon=1e-6):
     """
         input:
@@ -113,7 +132,7 @@ def compute_center_targets(gts, anchors, epsilon=1e-6):
     targets = (gts - anchors[:, 0:2]) / (anchors[:, 2:4] + epsilon)
     return targets
 
-@jit 
+@jit(nopython=True)
 def compute_scale_ratios(gts, anchors, epsilon=1e-6):
     """
         input:
@@ -126,7 +145,7 @@ def compute_scale_ratios(gts, anchors, epsilon=1e-6):
     targets = gts / (anchors[2:4] + 1e-6)
     return targets
 
-@jit
+@jit(nopython=True)
 def compute_targets(gts, anchors):
     """
         input:
@@ -141,7 +160,7 @@ def compute_targets(gts, anchors):
     results[:, 2:4] = compute_center_targets(gts_xywh[:, 2:4], anchor_xywh)
     return results
 
-@jit
+@jit(nopython=True)
 def determine_targets(gts, anchors, bg_threshold=0.3, fg_threshold=0.4):
     """
         inputs:
@@ -173,22 +192,25 @@ if __name__ == "__main__":
     box1 = np.random.rand(15, 4)
     box2 = np.random.rand(15, 4)
     xywh2xyxy(box1)
+    xyxy2xywh_noJit(box2)
     xyxy2xywh(box1)
     bbox2d_area(box1)
     anchor_gts_index, positive_index, negative_index = determine_targets(box1, box2, 0.3, 0.4)
     print(anchor_gts_index, positive_index, negative_index)
     compute_targets(box1, box2)
-
     print("compilation succeeded")
+
     box2 = np.zeros([32, 4])
-    import time
     a = time.time()
     xyxy2xywh(box2)
-    print(time.time() - a)
-    
+    print(f"Time execution of xyxy2xywh(): {time.time() - a} second.")
+
     a = time.time()
+    xyxy2xywh_noJit(box2)
+    print(f"Time execution of xyxy2xywh_noJit(): {time.time() - a} second.")
+
     box1 = np.random.rand(10, 4)
     box2 = np.random.rand(1024, 4)
+    a = time.time()
     determine_targets(box1, box2, 0.3, 0.4)
-    
-    print(time.time() - a)
+    print(f"Time execution of determine_targets(): {time.time() - a} second.")

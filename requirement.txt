@@ -1,6 +1,4 @@
 numpy
-torch
-torchvision
 pillow
 scikit-image
 fire
@@ -12,3 +10,4 @@ tensorflow >= 2.0
 cython
 tqdm
 pyquaternion
+coloredlogs

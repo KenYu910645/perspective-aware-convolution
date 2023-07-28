@@ -13,9 +13,7 @@ from visualDet3D.networks.lib.fast_utils.hill_climbing import post_opt
 from visualDet3D.networks.utils.utils import ClipBoxes
 from visualDet3D.networks.lib.look_ground import LookGround
 
-import sys
-sys.path.insert(0, "/home/lab530/KenYu/ml_toolkit/kitti/")
-from util_kitti import gac_original_anchor_parser, STD_HEIGT, STD_WIDTH, STD_LENTH
+from visualDet3D.utils.util_kitti import gac_original_anchor_parser, STD_HEIGT, STD_WIDTH, STD_LENTH
 import os
 
 DEVICE = torch.device("cuda:0") # TODO

@@ -1,3 +1,26 @@
+#####################
+### Preprocessing ###
+#####################
+# train split 
+# python3 scripts/imdb_precompute_3d.py --config config/pac_new/pac_module.py
+
+# test split, for inference.
+# python3 scripts/imdb_precompute_test.py --config=$CONFIG_PATH
+
+################
+### Training ###
+################
+
+./launchers/train.sh config/pac_new/pac_module.py 0 pac_module
+
+# EXP_NAME=('pac_module')
+
+# for exp_name in "${EXP_NAME[@]}"
+# do
+#     ./launchers/det_precompute.sh config/pac_new/"$exp_name".py train
+#     # ./launchers/train.sh config/pac_new/"$exp_name".py 0 "$exp_name"
+# done
+
 
 # ./launchers/det_precompute.sh config/das/das_kmeans_anchor_32.py train
 # ./launchers/train.sh config/das/das_kmeans_anchor_32.py 1 das_kmeans_anchor_32

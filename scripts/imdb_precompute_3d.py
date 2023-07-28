@@ -1,41 +1,25 @@
 import numpy as np
 import os
 import pickle
-import time
 import cv2
 from copy import deepcopy
-import skimage.measure
 import torch
 import shutil
 
-import matplotlib
-matplotlib.use('agg') 
-
 from _path_init import *
 from visualDet3D.networks.heads.anchors import Anchors, load_from_pkl_or_npy, generate_anchors
-from visualDet3D.networks.utils.utils import calc_iou, BBox3dProjector
+from visualDet3D.networks.utils.utils import calc_iou
 from visualDet3D.data.pipeline import build_augmentator
-from visualDet3D.data.kitti.kittidata import KittiData, KittiLabel
+from visualDet3D.data.kitti.kittidata import KittiData
 from visualDet3D.utils.timer import Timer
 from visualDet3D.utils.utils import cfg_from_file
+from visualDet3D.utils.util_kitti import kitti_calib_file_parser
+from visualDet3D.data_augmentation.copy_paste import CopyPaste_Object
 
-import random 
-import shutil
-import copy
-import json 
-import numpy as np 
-from math import sqrt
-import argparse
-import pickle
-
-import sys
-sys.path.insert(0, "/home/lab530/KenYu/ml_toolkit/kitti")
-from iou_3d import get_3d_box, box3d_iou, box2d_iou, box2d_iog
-from util_kitti import kitti_calib_file_parser, KITTI_Object
-
-import sys
-sys.path.insert(0, "/home/lab530/KenYu/ml_toolkit/data_augmentation/3Dmixup/")
-from copy_paste import CopyPaste_Object
+# Reference: https://blog.csdn.net/xr627/article/details/127581608
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # For avoid tensorflow mumbling
+import matplotlib
+matplotlib.use('agg')
 
 def process_train_val_file(cfg):
     train_file = cfg.data.train_split_file
@@ -284,7 +268,7 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
             
             cfg.data.anchor_mean_std_path     = getattr(cfg.data, 'anchor_mean_std_path', "/home/lab530/KenYu/visualDet3D/anchor/max_occlusion_2")
             cfg.data.is_overwrite_anchor_file = getattr(cfg.data, 'is_overwrite_anchor_file', False)
-            cfg.data.is_use_anchor_file       = getattr(cfg.data, 'is_use_anchor_file', False) # BUG, this was set to true previously
+            cfg.data.is_use_anchor_file       = getattr(cfg.data, 'is_use_anchor_file', False)
             
             mean_file_dst = os.path.join(save_dir,'anchor_mean_{}.npy'.format(cfg.obj_types[j]))
             std_file_dst  = os.path.join(save_dir,'anchor_std_{}.npy'.format(cfg.obj_types[j]))
@@ -298,9 +282,9 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
             anchor_prior_calculation_result['anchor_mean']      = avg # (32, 6)
             anchor_prior_calculation_result['anchor_std']       = std # (32, 6)
             
-            with open('/home/lab530/KenYu/visualDet3D/covered_missed_gt/anchor_prior_calculation_result.pkl', 'wb') as f:
-                pickle.dump(anchor_prior_calculation_result, f)
-                print(f"[imdb_precompute_3d.py] Saved anchor_prior_calculation_result")
+            # with open('/home/lab530/KenYu/visualDet3D/covered_missed_gt/anchor_prior_calculation_result.pkl', 'wb') as f:
+            #     pickle.dump(anchor_prior_calculation_result, f)
+            #     print(f"[imdb_precompute_3d.py] Saved anchor_prior_calculation_result")
             
             if not cfg.data.is_use_anchor_file:
                 # Use anchor that generate with this dataset
@@ -340,12 +324,6 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
     print("{} split finished precomputing".format(data_split))
 
 def main(config:str="config/config.py"):
-    
-    # This is only for kmeans experiement
-    # for num_anchor in range(1, 20):
-    #     print(f"START {num_anchor} ANCHORS")
-    #     cfg = cfg_from_file(config)
-    #     cfg.detector.anchors.external_anchor_path = f"/home/lab530/KenYu/visualDet3D/anchor/kmeans/anchor_{num_anchor}/"
     
     cfg = cfg_from_file(config)
     

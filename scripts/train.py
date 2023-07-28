@@ -1,18 +1,21 @@
 """
     Script for launching training process
 """
-import matplotlib
-matplotlib.use('agg') 
-
 import os
 from easydict import EasyDict
 from fire import Fire
 import torch
+
+# Reference: https://blog.csdn.net/xr627/article/details/127581608
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # For avoid tensorflow mumbling
+import matplotlib # Disable GUI
+matplotlib.use('agg')
+
 from torch.utils.tensorboard import SummaryWriter
 
 from _path_init import *
 from visualDet3D.networks.utils.registry import DETECTOR_DICT, DATASET_DICT, PIPELINE_DICT
-from visualDet3D.networks.utils.utils import BackProjection, BBox3dProjector, get_num_parameters
+from visualDet3D.networks.utils.utils import get_num_parameters
 from visualDet3D.evaluator.kitti.evaluate import evaluate
 import visualDet3D.data.kitti.dataset
 from visualDet3D.utils.timer import Timer

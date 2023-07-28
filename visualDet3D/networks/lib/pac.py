@@ -3,21 +3,9 @@ import torch
 import torchvision.ops
 from torch import nn
 import numpy as np
-import os
 from math import sqrt
-import sys
 import torch.nn.functional as F
 from math import atan2, pi, sin, cos
-
-sys.path.insert(0, "/home/lab530/KenYu/ml_toolkit/kitti/")
-from util_kitti import kitti_calib_file_parser
-
-# Image files 
-IMG_DIR = "/home/lab530/KenYu/kitti/training/image_2/"
-# Anotations files 
-ANO_DIR = "/home/lab530/KenYu/kitti/training/label_2/"
-# Calibration files
-CAR_DIR = "/home/lab530/KenYu/kitti/training/calib/"
 
 AVG_Y3D_CENTER = 0.94677
 
@@ -31,7 +19,7 @@ def xyz_2_uv(X, P2):
     u, v = int(X_img[0]), int(X_img[1])
     return (u,v)
 
-def uvy_2_xyz(uvy, P2): # y0=AVG_Y3D_CENTER): # 1.65
+def uvy_2_xyz(uvy, P2):
     u, v, y0 = uvy
     
     P2_3x3 = np.array([P2[0, :3], P2[1, :3], P2[2, :3]])
@@ -106,12 +94,6 @@ class PerspectiveConv2d(nn.Module):
                                       bias=bias)
 
         self.offset_cache = {}
-        
-        # For Fix P2
-        self.P2_A = kitti_calib_file_parser(os.path.join(CAR_DIR, f"000169.txt"),
-                                            new_shape_tf = (288, 1280), 
-                                            crop_tf = 100)
-        self.offsets_P2_A = self.get_offset(self.P2_A)
         
         #
         # print(f"self.offsets.max() = {self.offsets.max()}") #  4.9375

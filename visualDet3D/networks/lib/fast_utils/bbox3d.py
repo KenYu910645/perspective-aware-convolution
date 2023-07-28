@@ -1,14 +1,14 @@
 from numba import jit
 import numpy as np
 
-@jit
+@jit(nopython=True)
 def convertAlpha2Rot(alpha, z3d, x3d):
     ry3d = alpha + np.arctan2(-z3d, x3d) + 0.5 * np.pi
     ry3d[np.where(ry3d > np.pi)] -= 2 * np.pi
     ry3d[np.where(ry3d <= -np.pi)] += 2 * np.pi
     return ry3d
 
-@jit
+@jit(nopython=True)
 def convertRot2Alpha(ry3d, z3d, x3d):
 
     alpha = ry3d - np.arctan2(-z3d, x3d) - 0.5 * np.pi
@@ -16,7 +16,7 @@ def convertRot2Alpha(ry3d, z3d, x3d):
     alpha[alpha <= -np.pi] += 2 * np.pi
     return alpha
 
-@jit
+@jit(nopython=True)
 def project_3d(p2, x3d, y3d, z3d, w3d, h3d, l3d, ry3d):
     """
     Projects a 3D box into 2D vertices
