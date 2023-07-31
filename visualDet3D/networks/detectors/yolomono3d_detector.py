@@ -8,24 +8,22 @@ from visualDet3D.networks.heads.detection_3d_head import AnchorBasedDetection3DH
 
 @DETECTOR_DICT.register_module
 class Yolo3D(nn.Module):
-    def __init__(self, network_cfg):
+    def __init__(self, detector_cfg):
         super(Yolo3D, self).__init__()
         
-        self.obj_types = network_cfg.obj_types
+        self.obj_types = detector_cfg.obj_types
         
-        self.is_das = getattr(network_cfg, 'is_das', False)
-        print(f"network_cfg = {network_cfg}")
-
+        self.is_das = getattr(detector_cfg, 'is_das', False)
         
-        self.build_head(network_cfg)
+        self.build_head(detector_cfg)
 
-        # self.build_core(network_cfg)
+        # self.build_core(detector_cfg)
         
         # Build backbone
-        if "resnext_mode_name" in network_cfg.backbone:
+        if "resnext_mode_name" in detector_cfg.backbone:
             print(f"Using ResNext as Backbone")
             resnext_mode = torch.hub.load('pytorch/vision:v0.10.0', 
-                                           network_cfg.backbone["resnext_mode_name"], 
+                                           detector_cfg.backbone["resnext_mode_name"], 
                                            pretrained=True)
             
             # Get a list of child modules
@@ -39,11 +37,11 @@ class Yolo3D(nn.Module):
             # Reconstruct the model with the remaining modules
             self.backbone = nn.Sequential(*child_modules)
         else:
-            self.backbone = resnet(**network_cfg.backbone)
+            self.backbone = resnet(**detector_cfg.backbone)
 
-        self.network_cfg = network_cfg
+        self.detector_cfg = detector_cfg
 
-        self.network_cfg.head.is_seperate_cz = getattr(network_cfg.head, 'is_seperate_cz', False)
+        self.detector_cfg.head.is_seperate_cz = getattr(detector_cfg.head, 'is_seperate_cz', False)
         
         self.is_writen_anchor_file = False
         
@@ -51,16 +49,16 @@ class Yolo3D(nn.Module):
             self.lxl_conv_1024 = nn.Conv2d(in_channels =  512, out_channels = 1024, kernel_size = 1)
             self.fpn_conv      = nn.Conv2d(in_channels = 1024, out_channels = 1024, kernel_size = 3, padding=1)
     
-    # def build_core(self, network_cfg):
-    #     self.core = YoloMono3DCore(network_cfg.backbone)
+    # def build_core(self, detector_cfg):
+    #     self.core = YoloMono3DCore(detector_cfg.backbone)
 
-    # def build_head(self, network_cfg):
+    # def build_head(self, detector_cfg):
     #     self.bbox_head = AnchorBasedDetection3DHead(
-    #         **(network_cfg.head)
+    #         **(detector_cfg.head)
     #     )
 
-    def build_head(self, network_cfg):
-        self.bbox_head = AnchorBasedDetection3DHead(**(network_cfg.head))
+    def build_head(self, detector_cfg):
+        self.bbox_head = AnchorBasedDetection3DHead(**(detector_cfg.head))
 
     def backbone_forward(self, x):
         # print(f"x['image'] = {x['image'].shape}") # torch.Size([8, 3, 288, 1280])
@@ -106,11 +104,11 @@ class Yolo3D(nn.Module):
         anchors = self.bbox_head.get_anchor(img_batch, P2)
         
         # Output Anchor to file
-        if (not self.is_writen_anchor_file) and self.network_cfg.head.data_cfg.is_overwrite_anchor_file:
+        if (not self.is_writen_anchor_file) and self.detector_cfg.head.data_cfg.is_overwrite_anchor_file:
             import pickle
-            with open(f"{self.network_cfg.head.data_cfg.anchor_mean_std_path}_anchor.pkl", 'wb') as f:
+            with open(f"{self.detector_cfg.head.data_cfg.anchor_mean_std_path}_anchor.pkl", 'wb') as f:
                 pickle.dump(anchors, f)
-                print(f"Save to {self.network_cfg.head.data_cfg.anchor_mean_std_path}_anchor.pkl")
+                print(f"Save to {self.detector_cfg.head.data_cfg.anchor_mean_std_path}_anchor.pkl")
             self.is_writen_anchor_file = True
         
         # print(f"[anchor.py] anchor means = {anchors_z.mean()}") # torch.Size([1, 46080])
@@ -152,7 +150,7 @@ class Yolo3D(nn.Module):
         # print(f"anchors['mask'] = {anchors['mask'].shape}") # [1, 46080]
         # print(f"anchors['anchor_mean_std_3d'] = {anchors['anchor_mean_std_3d'].shape}") # [46080, 1, 6, 2]
 
-        # if self.network_cfg.is_fpn_debug:
+        # if self.detector_cfg.is_fpn_debug:
         #     cls_preds = cls_preds[:, 184320:230400, :]
         #     reg_preds = reg_preds[:, 184320:230400, :]
         #     anchors['anchors'] = anchors['anchors'][:, 184320:230400, :]
@@ -178,5 +176,5 @@ class Yolo3D(nn.Module):
 
 # @DETECTOR_DICT.register_module
 # class GroundAwareYolo3D(Yolo3D):
-#     def build_head(self, network_cfg):
-#         self.bbox_head = GroundAwareHead(**(network_cfg.head))
+#     def build_head(self, detector_cfg):
+#         self.bbox_head = GroundAwareHead(**(detector_cfg.head))
