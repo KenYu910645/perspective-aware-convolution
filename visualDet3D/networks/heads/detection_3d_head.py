@@ -5,10 +5,10 @@ from easydict import EasyDict
 import numpy as np
 from visualDet3D.networks.heads.losses import CIoULoss, DIoULoss, SigmoidFocalLoss, ModifiedSmoothL1Loss, IoULoss
 from visualDet3D.networks.heads.anchors import Anchors
-from visualDet3D.networks.utils.utils import calc_iou, BackProjection, BBox3dProjector
+from visualDet3D.networks.utils.utils import calc_iou, BackProjection
 from visualDet3D.networks.lib.fast_utils.hill_climbing import post_opt
 from visualDet3D.networks.utils.utils import ClipBoxes
-from visualDet3D.networks.lib.blocks import AnchorFlatten, ConvBnReLU
+from visualDet3D.networks.lib.blocks import AnchorFlatten
 from visualDet3D.networks.backbones.resnet import BasicBlock
 from visualDet3D.networks.lib.ops import ModulatedDeformConvPack
 from visualDet3D.networks.lib.look_ground import LookGround
@@ -33,7 +33,6 @@ class AnchorBasedDetection3DHead(nn.Module):
                        loss_cfg:EasyDict=EasyDict(),
                        test_cfg:EasyDict=EasyDict(),
                        read_precompute_anchor:bool=True,
-                       exp:str='',
                        data_cfg:EasyDict=EasyDict(),
                        is_fpn_debug:bool=False,
                        use_channel_attention:bool=False,
@@ -74,12 +73,10 @@ class AnchorBasedDetection3DHead(nn.Module):
         self.test_cfg  = test_cfg
         self.data_cfg = data_cfg
         self.iou_type = getattr(self.loss_cfg, 'iou_type', "baseline")
-        print(f"self.iou_type = {self.iou_type}")
         self.build_loss(**loss_cfg)
         self.backprojector = BackProjection()
         self.clipper = ClipBoxes()
         
-        self.exp = exp
         self.layer_cfg = layer_cfg
         self.is_fpn_debug = is_fpn_debug
         self.use_channel_attention = use_channel_attention
@@ -110,7 +107,6 @@ class AnchorBasedDetection3DHead(nn.Module):
         self.is_pac_module_3D = is_pac_module_3D
         self.lock_theta_ortho = lock_theta_ortho
 
-        print(f"AnchorBasedDetection3DHead self.exp = {exp}")
         print(f"self.is_fpn_debug = {self.is_fpn_debug}")
         print(f"self.use_channel_attention = {self.use_channel_attention}")
         print(f"self.use_spatial_attention = {self.use_spatial_attention}")
@@ -150,49 +146,282 @@ class AnchorBasedDetection3DHead(nn.Module):
         self.n_cover_gt = 0
         self.n_assign_anchor = 0
 
-    def init_layers(self, num_features_in, # This function will be overwritten
+    def init_layers(self, num_features_in,
                           num_anchors:int,
                           num_cls_output:int,
                           num_reg_output:int,
                           cls_feature_size:int=1024,
                           reg_feature_size:int=1024,
                           **kwargs):
-
-        self.cls_feature_extraction = nn.Sequential(
-            nn.Conv2d(num_features_in, cls_feature_size, kernel_size=3, padding=1),
-            nn.Dropout2d(0.3),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(cls_feature_size, cls_feature_size, kernel_size=3, padding=1),
-            nn.Dropout2d(0.3),
-            nn.ReLU(inplace=True),
-
-            nn.Conv2d(cls_feature_size, num_anchors*(num_cls_output), kernel_size=3, padding=1),
-            AnchorFlatten(num_cls_output)
-        )
-        self.cls_feature_extraction[-2].weight.data.fill_(0)
-        self.cls_feature_extraction[-2].bias.data.fill_(0)
-
-        self.reg_feature_extraction = nn.Sequential(
-            ModulatedDeformConvPack(num_features_in, reg_feature_size, 3, padding=1),
-            nn.BatchNorm2d(reg_feature_size),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(reg_feature_size, reg_feature_size, kernel_size=3, padding=1),
-            nn.BatchNorm2d(reg_feature_size),
-            nn.ReLU(inplace=True),
-
-            nn.Conv2d(reg_feature_size, num_anchors*num_reg_output, kernel_size=3, padding=1),
-            AnchorFlatten(num_reg_output)
-        )
-
-        self.reg_feature_extraction[-2].weight.data.fill_(0)
-        self.reg_feature_extraction[-2].bias.data.fill_(0)
-
-    def forward(self, inputs): # This function will be overwritten
-        cls_preds = self.cls_feature_extraction(inputs['features'])
-        reg_preds = self.reg_feature_extraction(inputs['features'])
-
-        return cls_preds, reg_preds
+        ####################################
+        ### Attention Module Declaration ###
+        ####################################
+        if self.use_spatial_attention or self.use_channel_attention:
+            self.cbam_layer = CBAM(num_features_in, 
+                                    reduction_ratio = 16, 
+                                    pool_types = ['avg', 'max'], 
+                                    use_spatial = self.use_spatial_attention, 
+                                    use_channel = self.use_channel_attention)
+            print(self.cbam_layer)
         
+        if self.use_bam:
+            self.bam_layer = BAM(num_features_in)
+            print(self.bam_layer)
+        
+        if self.use_coordinate_attetion:
+            self.coord_atten_layer = CoordAtt(num_features_in, num_features_in)
+            print(self.coord_atten_layer)
+        
+        ###################################
+        ### Dilation Module Declaration ###
+        ###################################
+        if self.num_dcnv2 != 0:
+            self.dcn_layers = nn.ModuleList([
+                DeformableConv2d(1024, 1024, kernel_size=3, stride=1, padding=1)
+                for _ in range(self.num_dcnv2)
+            ])
+
+        if self.num_pac_layer != 0:
+            if self.is_pac_bn_relu:
+                self.pac_layers = []
+                for _ in range(self.num_pac_layer):
+                    self.pac_layers.append( nn.Sequential(
+                        PerspectiveConv2d(num_features_in,
+                                            num_features_in,
+                                            self.pac_mode,
+                                            offset_2d = self.offset_2d,
+                                            offset_3d = self.offset_3d,
+                                            input_shape = (18, 80),
+                                            pad_mode=self.pad_mode,
+                                            adpative_P2 = self.adpative_P2,
+                                            lock_theta_ortho=self.lock_theta_ortho,),
+                        nn.BatchNorm2d(num_features_in),
+                        nn.ReLU(),) )
+                self.pac_layers = [n.to("cuda") for n in self.pac_layers] # TODO, tmp
+            else:
+                self.pac_layers = nn.ModuleList([
+                    PerspectiveConv2d(num_features_in,
+                                    num_features_in,
+                                    self.pac_mode,
+                                    offset_2d = self.offset_2d,
+                                    offset_3d = self.offset_3d,
+                                    input_shape = (18, 80),
+                                    pad_mode=self.pad_mode,
+                                    adpative_P2 = self.adpative_P2,
+                                    lock_theta_ortho=self.lock_theta_ortho,)
+                    for _ in range(self.num_pac_layer) ])
+                
+            print(f"self.pac_layers = {self.pac_layers}")
+        
+        if self.is_pac_module:
+            self.pac_layers = PAC_module(num_features_in, num_features_in, "2d_offset")
+            print(f"self.pac_layers = {self.pac_layers}")
+        
+        if self.is_pac_module_3D:
+            self.pac_layers = PAC_3D_module(num_features_in, num_features_in, "2d_offset")
+            print(f"self.pac_layers = {self.pac_layers}")
+            
+        if self.is_rfb:
+            self.RFB_layer = BasicRFB(1024, 1024, scale = 1.0, visual=2)
+        
+        if self.is_aspp:
+            self.aspp_layer = ASPP(1024, 1024)
+        
+        if self.is_cubic_pac:
+            self.pac_cubic_layer =  nn.Sequential(PerspectiveConv2d_cubic(num_features_in,
+                                                                          num_features_in,
+                                                                          self.pac_mode,
+                                                                          offset_2d = self.offset_2d,
+                                                                          offset_3d = self.offset_3d,
+                                                                          input_shape = (18, 80),
+                                                                          pad_mode=self.pad_mode,
+                                                                          adpative_P2 = self.adpative_P2,
+                                                                          lock_theta_ortho=self.lock_theta_ortho,),
+                                                                          nn.BatchNorm2d(num_features_in),
+                                                                          nn.ReLU(),)
+        
+        #########################################
+        ### Classification Branch Declaration ###
+        #########################################
+        if self.is_das:
+            self.cls_feature_extraction = nn.Sequential(
+                nn.Conv2d(num_features_in, cls_feature_size, kernel_size=3, padding=1),
+                nn.Dropout2d(0.3),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(cls_feature_size, cls_feature_size, kernel_size=3, padding=1),
+                nn.Dropout2d(0.3),
+                nn.ReLU(inplace=True),
+                nn.Upsample(scale_factor=2, mode='nearest'),
+                DepthAwareSample(cls_feature_size, num_cls_output*num_anchors, num_cls_output, kernel_size=3, padding=1),
+            )
+        else:
+            self.cls_feature_extraction = nn.Sequential(
+                nn.Conv2d(num_features_in, cls_feature_size, kernel_size=3, padding=1),
+                nn.Dropout2d(0.3),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(cls_feature_size, cls_feature_size, kernel_size=3, padding=1),
+                nn.Dropout2d(0.3),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(cls_feature_size, num_anchors*num_cls_output, kernel_size=3, padding=1),
+                AnchorFlatten(num_cls_output)
+            )
+            self.cls_feature_extraction[-2].weight.data.fill_(0)
+            self.cls_feature_extraction[-2].bias.data.fill_(0)
+        
+        #####################################
+        ### Regression Branch Declaration ###
+        #####################################
+        if self.is_das:
+            self.reg_feature_extraction = nn.Sequential(
+                LookGround(num_features_in),
+                nn.Conv2d(num_features_in, reg_feature_size, 3, padding=1),
+                nn.BatchNorm2d(reg_feature_size),
+                nn.ReLU(),
+                nn.Conv2d(reg_feature_size, reg_feature_size, kernel_size=3, padding=1),
+                nn.BatchNorm2d(reg_feature_size),
+                nn.ReLU(inplace=True),
+                nn.Upsample(scale_factor=2, mode='nearest'),
+                DepthAwareSample(reg_feature_size, num_anchors*num_reg_output, num_reg_output, kernel_size=3, padding=1),
+            )
+        else:
+            self.reg_feature_extraction = nn.Sequential(
+                LookGround(num_features_in),
+                nn.Conv2d(num_features_in, reg_feature_size, 3, padding=1),
+                nn.BatchNorm2d(reg_feature_size),
+                nn.ReLU(),
+                nn.Conv2d(reg_feature_size, reg_feature_size, kernel_size=3, padding=1),
+                nn.BatchNorm2d(reg_feature_size),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(reg_feature_size, num_anchors*num_reg_output, kernel_size=3, padding=1),
+                AnchorFlatten((num_reg_output))
+            )
+            self.reg_feature_extraction[-2].weight.data.fill_(0)
+            self.reg_feature_extraction[-2].bias.data.fill_(0)
+
+        ################################
+        ### Depth Branch Declaration ###
+        ################################
+        if self.is_seperate_cz:
+            if self.cz_pred_mode == "fc":
+                self.cz_feature_extraction = nn.Sequential( # Reduce dimension from 1024 to 256
+                    nn.Conv2d(num_features_in, 256, kernel_size = 1),
+                )
+                self.cz_fc_layer = nn.Sequential(
+                    nn.Linear(18*80*256, 1440),
+                    nn.ReLU(),
+                    nn.Linear(1440 , 1440),
+                )
+            elif self.cz_pred_mode == "look_ground":
+                self.cz_feature_extraction = nn.Sequential(
+                    LookGround(num_features_in),
+                    nn.Conv2d(num_features_in, self.cz_reg_dim, kernel_size=3, padding=1),
+                    nn.BatchNorm2d(self.cz_reg_dim),
+                    nn.ReLU(),
+                    nn.Conv2d(self.cz_reg_dim, self.cz_reg_dim, kernel_size=3, padding=1),
+                    nn.BatchNorm2d(self.cz_reg_dim),
+                    nn.ReLU(inplace=True),
+                    nn.Conv2d(self.cz_reg_dim, num_anchors*1, kernel_size=3, padding=1),
+                    AnchorFlatten((1)),
+                )
+                self.cz_feature_extraction[-2].weight.data.fill_(0)
+                self.cz_feature_extraction[-2].bias.data.fill_(0)
+            
+            elif self.cz_pred_mode == "oridinal_loss": # TODO
+                raise NotImplementedError
+        
+        ###################################
+        ### Noam Regression Declaration ###
+        ###################################
+        if self.is_noam_loss and self.is_seperate_noam:
+            self.noam_feature_extraction = nn.Sequential(
+                nn.Conv2d(num_features_in, reg_feature_size, 3, padding=1),
+                nn.BatchNorm2d(reg_feature_size),
+                nn.ReLU(),
+                nn.Conv2d(reg_feature_size, reg_feature_size, kernel_size=3, padding=1),
+                nn.BatchNorm2d(reg_feature_size),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(reg_feature_size, num_anchors*8, kernel_size=3, padding=1),
+                AnchorFlatten((8))
+            )
+            self.noam_feature_extraction[-2].weight.data.fill_(0)
+            self.noam_feature_extraction[-2].bias.data.fill_(0)
+
+    def forward(self, inputs):
+        
+        # print(f"[detection_3d_head.py] inputs['features'] = {inputs['features'].shape}")
+        
+        ########################
+        ### Attention Module ###
+        ########################
+        if self.use_spatial_attention or self.use_channel_attention:
+            inputs['features'] = self.cbam_layer(inputs['features']) # [1024, 18, 80]
+        
+        if self.use_bam:
+            inputs['features'] = self.bam_layer(inputs['features'])
+        
+        if self.use_coordinate_attetion:
+            inputs['features'] = self.coord_atten_layer(inputs['features'])
+        
+        ########################
+        ### Dilation  Module ###
+        ########################
+        if self.num_dcnv2 != 0:
+            for i in range(self.num_dcnv2):
+                inputs['features'] = self.dcn_layers[i](inputs['features'])
+        
+        if self.num_pac_layer != 0:
+            for i in range(self.num_pac_layer):
+                inputs['features'] = self.pac_layers[i](inputs)
+        
+        if self.is_pac_module or self.is_pac_module_3D:
+            inputs['features'] = self.pac_layers(inputs)
+    
+        if self.is_rfb:
+            inputs['features'] = self.RFB_layer(inputs['features'])
+        
+        if self.is_aspp:
+            inputs['features'] = self.aspp_layer(inputs['features'])
+        
+        if self.is_cubic_pac:
+            inputs['features'] = self.pac_cubic_layer(inputs)
+            
+        
+        cls_preds = self.cls_feature_extraction(inputs['features'])
+        reg_preds = self.reg_feature_extraction(inputs)
+        
+        ################################
+        ### Depth Prediction  Module ###
+        ################################
+        if self.is_seperate_cz:
+            if self.cz_pred_mode == "fc":
+                dep_preds = self.cz_feature_extraction(inputs['features'])
+                dep_preds = dep_preds.permute(0, 2, 3, 1)
+                dep_preds = dep_preds.contiguous().view(dep_preds.shape[0], -1) # torch.Size([8, 368640])
+                dep_preds = self.cz_fc_layer(dep_preds) # torch.Size([8, 1440])
+                dep_preds = dep_preds.view(dep_preds.shape[0], -1, 18, 80) # torch.Size([8, 1, 18, 80])
+                dep_preds = dep_preds.repeat(1, 32, 1, 1) # torch.Size([8, 32, 18, 80])
+            
+            elif self.cz_pred_mode == "look_ground":
+                dep_preds = self.cz_feature_extraction(inputs)
+            
+            elif self.cz_pred_mode == "oridinal_loss":
+                raise NotImplementedError
+        else:
+            dep_preds = None
+        
+        ###################
+        ### NOAM Moduel ###
+        ###################
+        if self.is_noam_loss and self.is_seperate_noam:
+            nom_preds = self.noam_feature_extraction(inputs['features'])
+        else:
+            nom_preds = None
+        
+        return {"cls_preds" : cls_preds,
+                "reg_preds" : reg_preds,
+                "dep_preds" : dep_preds,
+                "nom_preds" : nom_preds}
+
     def build_loss(self, focal_loss_gamma=0.0, balance_weight=[0], L1_regression_alpha=9, **kwargs):
         self.focal_loss_gamma = focal_loss_gamma
         self.register_buffer("balance_weights", torch.tensor(balance_weight, dtype=torch.float32))
@@ -345,13 +574,13 @@ class AnchorBasedDetection3DHead(nn.Module):
         gh =  sampled_gt_bboxes[..., 3] - sampled_gt_bboxes[..., 1]
 
         # diff of 2D bbox's center and geometry 
-        targets_dx = (gx - px) / pw # TODO, YOLO says it's unstable to train
+        targets_dx = (gx - px) / pw
         targets_dy = (gy - py) / ph
         targets_dw = torch.log(gw / pw)
         targets_dh = torch.log(gh / ph)
 
-        # 3D bbox center on image plane, # TODO because gac_original use 2d boudning box as feature location
-        targets_cdx = (sampled_gt_bboxes[:, 5] - px) / pw # TODO we should use cx, cy prior
+        # 3D bbox center on image plane
+        targets_cdx = (sampled_gt_bboxes[:, 5] - px) / pw
         targets_cdy = (sampled_gt_bboxes[:, 6] - py) / ph
 
         # 3D bbox center's depth
@@ -930,287 +1159,280 @@ class AnchorBasedDetection3DHead(nn.Module):
 
         return log_dict
 
-class GroundAwareHead(AnchorBasedDetection3DHead):
-    def init_layers(self, num_features_in,
-                          num_anchors:int,
-                          num_cls_output:int,
-                          num_reg_output:int,
-                          cls_feature_size:int=1024,
-                          reg_feature_size:int=1024,
-                          **kwargs):
+# class GroundAwareHead(AnchorBasedDetection3DHead):
+#     def init_layers(self, num_features_in,
+#                           num_anchors:int,
+#                           num_cls_output:int,
+#                           num_reg_output:int,
+#                           cls_feature_size:int=1024,
+#                           reg_feature_size:int=1024,
+#                           **kwargs):
         
-        ####################################
-        ### Attention Module Declaration ###
-        ####################################
-        if self.use_spatial_attention or self.use_channel_attention:
-            self.cbam_layer = CBAM(num_features_in, 
-                                    reduction_ratio = 16, 
-                                    pool_types = ['avg', 'max'], 
-                                    use_spatial = self.use_spatial_attention, 
-                                    use_channel = self.use_channel_attention)
-            print(self.cbam_layer)
+#         ####################################
+#         ### Attention Module Declaration ###
+#         ####################################
+#         if self.use_spatial_attention or self.use_channel_attention:
+#             self.cbam_layer = CBAM(num_features_in, 
+#                                     reduction_ratio = 16, 
+#                                     pool_types = ['avg', 'max'], 
+#                                     use_spatial = self.use_spatial_attention, 
+#                                     use_channel = self.use_channel_attention)
+#             print(self.cbam_layer)
         
-        if self.use_bam:
-            self.bam_layer = BAM(num_features_in)
-            print(self.bam_layer)
+#         if self.use_bam:
+#             self.bam_layer = BAM(num_features_in)
+#             print(self.bam_layer)
         
-        if self.use_coordinate_attetion:
-            self.coord_atten_layer = CoordAtt(num_features_in, num_features_in)
-            print(self.coord_atten_layer)
+#         if self.use_coordinate_attetion:
+#             self.coord_atten_layer = CoordAtt(num_features_in, num_features_in)
+#             print(self.coord_atten_layer)
         
-        ###################################
-        ### Dilation Module Declaration ###
-        ###################################
-        if self.num_dcnv2 != 0:
-            self.dcn_layers = nn.ModuleList([
-                DeformableConv2d(1024, 1024, kernel_size=3, stride=1, padding=1)
-                for _ in range(self.num_dcnv2)
-            ])
+#         ###################################
+#         ### Dilation Module Declaration ###
+#         ###################################
+#         if self.num_dcnv2 != 0:
+#             self.dcn_layers = nn.ModuleList([
+#                 DeformableConv2d(1024, 1024, kernel_size=3, stride=1, padding=1)
+#                 for _ in range(self.num_dcnv2)
+#             ])
 
-        if self.num_pac_layer != 0:
-            if self.is_pac_bn_relu:
-                self.pac_layers = []
-                for _ in range(self.num_pac_layer):
-                    self.pac_layers.append( nn.Sequential(
-                        PerspectiveConv2d(num_features_in,
-                                            num_features_in,
-                                            self.pac_mode,
-                                            offset_2d = self.offset_2d,
-                                            offset_3d = self.offset_3d,
-                                            input_shape = (18, 80),
-                                            pad_mode=self.pad_mode,
-                                            adpative_P2 = self.adpative_P2,
-                                            lock_theta_ortho=self.lock_theta_ortho,),
-                        nn.BatchNorm2d(num_features_in),
-                        nn.ReLU(),) )
-                self.pac_layers = [n.to("cuda") for n in self.pac_layers] # TODO, tmp
-            else:
-                self.pac_layers = nn.ModuleList([
-                    PerspectiveConv2d(num_features_in,
-                                    num_features_in,
-                                    self.pac_mode,
-                                    offset_2d = self.offset_2d,
-                                    offset_3d = self.offset_3d,
-                                    input_shape = (18, 80),
-                                    pad_mode=self.pad_mode,
-                                    adpative_P2 = self.adpative_P2,
-                                    lock_theta_ortho=self.lock_theta_ortho,)
-                    for _ in range(self.num_pac_layer) ])
+#         if self.num_pac_layer != 0:
+#             if self.is_pac_bn_relu:
+#                 self.pac_layers = []
+#                 for _ in range(self.num_pac_layer):
+#                     self.pac_layers.append( nn.Sequential(
+#                         PerspectiveConv2d(num_features_in,
+#                                             num_features_in,
+#                                             self.pac_mode,
+#                                             offset_2d = self.offset_2d,
+#                                             offset_3d = self.offset_3d,
+#                                             input_shape = (18, 80),
+#                                             pad_mode=self.pad_mode,
+#                                             adpative_P2 = self.adpative_P2,
+#                                             lock_theta_ortho=self.lock_theta_ortho,),
+#                         nn.BatchNorm2d(num_features_in),
+#                         nn.ReLU(),) )
+#                 self.pac_layers = [n.to("cuda") for n in self.pac_layers] # TODO, tmp
+#             else:
+#                 self.pac_layers = nn.ModuleList([
+#                     PerspectiveConv2d(num_features_in,
+#                                     num_features_in,
+#                                     self.pac_mode,
+#                                     offset_2d = self.offset_2d,
+#                                     offset_3d = self.offset_3d,
+#                                     input_shape = (18, 80),
+#                                     pad_mode=self.pad_mode,
+#                                     adpative_P2 = self.adpative_P2,
+#                                     lock_theta_ortho=self.lock_theta_ortho,)
+#                     for _ in range(self.num_pac_layer) ])
                 
-            print(f"self.pac_layers = {self.pac_layers}")
+#             print(f"self.pac_layers = {self.pac_layers}")
         
-        if self.is_pac_module:
-            self.pac_layers = PAC_module(num_features_in, num_features_in, "2d_offset")
-            print(f"self.pac_layers = {self.pac_layers}")
+#         if self.is_pac_module:
+#             self.pac_layers = PAC_module(num_features_in, num_features_in, "2d_offset")
+#             print(f"self.pac_layers = {self.pac_layers}")
         
-        if self.is_pac_module_3D:
-            self.pac_layers = PAC_3D_module(num_features_in, num_features_in, "2d_offset")
-            print(f"self.pac_layers = {self.pac_layers}")
+#         if self.is_pac_module_3D:
+#             self.pac_layers = PAC_3D_module(num_features_in, num_features_in, "2d_offset")
+#             print(f"self.pac_layers = {self.pac_layers}")
             
-        if self.is_rfb:
-            self.RFB_layer = BasicRFB(1024, 1024, scale = 1.0, visual=2)
+#         if self.is_rfb:
+#             self.RFB_layer = BasicRFB(1024, 1024, scale = 1.0, visual=2)
         
-        if self.is_aspp:
-            self.aspp_layer = ASPP(1024, 1024)
+#         if self.is_aspp:
+#             self.aspp_layer = ASPP(1024, 1024)
         
-        if self.is_cubic_pac:
-            self.pac_cubic_layer =  nn.Sequential(PerspectiveConv2d_cubic(num_features_in,
-                                                                          num_features_in,
-                                                                          self.pac_mode,
-                                                                          offset_2d = self.offset_2d,
-                                                                          offset_3d = self.offset_3d,
-                                                                          input_shape = (18, 80),
-                                                                          pad_mode=self.pad_mode,
-                                                                          adpative_P2 = self.adpative_P2,
-                                                                          lock_theta_ortho=self.lock_theta_ortho,),
-                                                                          nn.BatchNorm2d(num_features_in),
-                                                                          nn.ReLU(),)
+#         if self.is_cubic_pac:
+#             self.pac_cubic_layer =  nn.Sequential(PerspectiveConv2d_cubic(num_features_in,
+#                                                                           num_features_in,
+#                                                                           self.pac_mode,
+#                                                                           offset_2d = self.offset_2d,
+#                                                                           offset_3d = self.offset_3d,
+#                                                                           input_shape = (18, 80),
+#                                                                           pad_mode=self.pad_mode,
+#                                                                           adpative_P2 = self.adpative_P2,
+#                                                                           lock_theta_ortho=self.lock_theta_ortho,),
+#                                                                           nn.BatchNorm2d(num_features_in),
+#                                                                           nn.ReLU(),)
         
-        #########################################
-        ### Classification Branch Declaration ###
-        #########################################
-        if self.is_das:
-            self.cls_feature_extraction = nn.Sequential(
-                nn.Conv2d(num_features_in, cls_feature_size, kernel_size=3, padding=1),
-                nn.Dropout2d(0.3),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(cls_feature_size, cls_feature_size, kernel_size=3, padding=1),
-                nn.Dropout2d(0.3),
-                nn.ReLU(inplace=True),
-                nn.Upsample(scale_factor=2, mode='nearest'),
-                DepthAwareSample(cls_feature_size, num_cls_output*num_anchors, num_cls_output, kernel_size=3, padding=1),
-            )
-        else:
-            self.cls_feature_extraction = nn.Sequential(
-                nn.Conv2d(num_features_in, cls_feature_size, kernel_size=3, padding=1),
-                nn.Dropout2d(0.3),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(cls_feature_size, cls_feature_size, kernel_size=3, padding=1),
-                nn.Dropout2d(0.3),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(cls_feature_size, num_anchors*num_cls_output, kernel_size=3, padding=1),
-                AnchorFlatten(num_cls_output)
-            )
-            self.cls_feature_extraction[-2].weight.data.fill_(0)
-            self.cls_feature_extraction[-2].bias.data.fill_(0)
+#         #########################################
+#         ### Classification Branch Declaration ###
+#         #########################################
+#         if self.is_das:
+#             self.cls_feature_extraction = nn.Sequential(
+#                 nn.Conv2d(num_features_in, cls_feature_size, kernel_size=3, padding=1),
+#                 nn.Dropout2d(0.3),
+#                 nn.ReLU(inplace=True),
+#                 nn.Conv2d(cls_feature_size, cls_feature_size, kernel_size=3, padding=1),
+#                 nn.Dropout2d(0.3),
+#                 nn.ReLU(inplace=True),
+#                 nn.Upsample(scale_factor=2, mode='nearest'),
+#                 DepthAwareSample(cls_feature_size, num_cls_output*num_anchors, num_cls_output, kernel_size=3, padding=1),
+#             )
+#         else:
+#             self.cls_feature_extraction = nn.Sequential(
+#                 nn.Conv2d(num_features_in, cls_feature_size, kernel_size=3, padding=1),
+#                 nn.Dropout2d(0.3),
+#                 nn.ReLU(inplace=True),
+#                 nn.Conv2d(cls_feature_size, cls_feature_size, kernel_size=3, padding=1),
+#                 nn.Dropout2d(0.3),
+#                 nn.ReLU(inplace=True),
+#                 nn.Conv2d(cls_feature_size, num_anchors*num_cls_output, kernel_size=3, padding=1),
+#                 AnchorFlatten(num_cls_output)
+#             )
+#             self.cls_feature_extraction[-2].weight.data.fill_(0)
+#             self.cls_feature_extraction[-2].bias.data.fill_(0)
         
-        print(f"GroundAwareHead self.exp = {self.exp}")
-        assert self.exp != "no_look_ground", f"self.exp == no_look_ground, this setting is not supported anymore, because it's worse than baseline"
+#         #####################################
+#         ### Regression Branch Declaration ###
+#         #####################################
+#         if self.is_das:
+#             self.reg_feature_extraction = nn.Sequential(
+#                 LookGround(num_features_in),
+#                 nn.Conv2d(num_features_in, reg_feature_size, 3, padding=1),
+#                 nn.BatchNorm2d(reg_feature_size),
+#                 nn.ReLU(),
+#                 nn.Conv2d(reg_feature_size, reg_feature_size, kernel_size=3, padding=1),
+#                 nn.BatchNorm2d(reg_feature_size),
+#                 nn.ReLU(inplace=True),
+#                 nn.Upsample(scale_factor=2, mode='nearest'),
+#                 DepthAwareSample(reg_feature_size, num_anchors*num_reg_output, num_reg_output, kernel_size=3, padding=1),
+#             )
+#         else:
+#             self.reg_feature_extraction = nn.Sequential(
+#                 LookGround(num_features_in),
+#                 nn.Conv2d(num_features_in, reg_feature_size, 3, padding=1),
+#                 nn.BatchNorm2d(reg_feature_size),
+#                 nn.ReLU(),
+#                 nn.Conv2d(reg_feature_size, reg_feature_size, kernel_size=3, padding=1),
+#                 nn.BatchNorm2d(reg_feature_size),
+#                 nn.ReLU(inplace=True),
+#                 nn.Conv2d(reg_feature_size, num_anchors*num_reg_output, kernel_size=3, padding=1),
+#                 AnchorFlatten((num_reg_output))
+#             )
+#             self.reg_feature_extraction[-2].weight.data.fill_(0)
+#             self.reg_feature_extraction[-2].bias.data.fill_(0)
 
-        #####################################
-        ### Regression Branch Declaration ###
-        #####################################
-        if self.is_das:
-            self.reg_feature_extraction = nn.Sequential(
-                LookGround(num_features_in, self.exp),
-                nn.Conv2d(num_features_in, reg_feature_size, 3, padding=1),
-                nn.BatchNorm2d(reg_feature_size),
-                nn.ReLU(),
-                nn.Conv2d(reg_feature_size, reg_feature_size, kernel_size=3, padding=1),
-                nn.BatchNorm2d(reg_feature_size),
-                nn.ReLU(inplace=True),
-                nn.Upsample(scale_factor=2, mode='nearest'),
-                DepthAwareSample(reg_feature_size, num_anchors*num_reg_output, num_reg_output, kernel_size=3, padding=1),
-            )
-        else:
-            self.reg_feature_extraction = nn.Sequential(
-                LookGround(num_features_in, self.exp),
-                nn.Conv2d(num_features_in, reg_feature_size, 3, padding=1),
-                nn.BatchNorm2d(reg_feature_size),
-                nn.ReLU(),
-                nn.Conv2d(reg_feature_size, reg_feature_size, kernel_size=3, padding=1),
-                nn.BatchNorm2d(reg_feature_size),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(reg_feature_size, num_anchors*num_reg_output, kernel_size=3, padding=1),
-                AnchorFlatten((num_reg_output))
-            )
-            self.reg_feature_extraction[-2].weight.data.fill_(0)
-            self.reg_feature_extraction[-2].bias.data.fill_(0)
-
-        ################################
-        ### Depth Branch Declaration ###
-        ################################
-        if self.is_seperate_cz:
-            if self.cz_pred_mode == "fc":
-                self.cz_feature_extraction = nn.Sequential( # Reduce dimension from 1024 to 256
-                    nn.Conv2d(num_features_in, 256, kernel_size = 1),
-                )
-                self.cz_fc_layer = nn.Sequential(
-                    nn.Linear(18*80*256, 1440),
-                    nn.ReLU(),
-                    nn.Linear(1440 , 1440),
-                )
-            elif self.cz_pred_mode == "look_ground":
-                self.cz_feature_extraction = nn.Sequential(
-                    LookGround(num_features_in, self.exp),
-                    nn.Conv2d(num_features_in, self.cz_reg_dim, kernel_size=3, padding=1),
-                    nn.BatchNorm2d(self.cz_reg_dim),
-                    nn.ReLU(),
-                    nn.Conv2d(self.cz_reg_dim, self.cz_reg_dim, kernel_size=3, padding=1),
-                    nn.BatchNorm2d(self.cz_reg_dim),
-                    nn.ReLU(inplace=True),
-                    nn.Conv2d(self.cz_reg_dim, num_anchors*1, kernel_size=3, padding=1),
-                    AnchorFlatten((1)),
-                )
-                self.cz_feature_extraction[-2].weight.data.fill_(0)
-                self.cz_feature_extraction[-2].bias.data.fill_(0)
+#         ################################
+#         ### Depth Branch Declaration ###
+#         ################################
+#         if self.is_seperate_cz:
+#             if self.cz_pred_mode == "fc":
+#                 self.cz_feature_extraction = nn.Sequential( # Reduce dimension from 1024 to 256
+#                     nn.Conv2d(num_features_in, 256, kernel_size = 1),
+#                 )
+#                 self.cz_fc_layer = nn.Sequential(
+#                     nn.Linear(18*80*256, 1440),
+#                     nn.ReLU(),
+#                     nn.Linear(1440 , 1440),
+#                 )
+#             elif self.cz_pred_mode == "look_ground":
+#                 self.cz_feature_extraction = nn.Sequential(
+#                     LookGround(num_features_in),
+#                     nn.Conv2d(num_features_in, self.cz_reg_dim, kernel_size=3, padding=1),
+#                     nn.BatchNorm2d(self.cz_reg_dim),
+#                     nn.ReLU(),
+#                     nn.Conv2d(self.cz_reg_dim, self.cz_reg_dim, kernel_size=3, padding=1),
+#                     nn.BatchNorm2d(self.cz_reg_dim),
+#                     nn.ReLU(inplace=True),
+#                     nn.Conv2d(self.cz_reg_dim, num_anchors*1, kernel_size=3, padding=1),
+#                     AnchorFlatten((1)),
+#                 )
+#                 self.cz_feature_extraction[-2].weight.data.fill_(0)
+#                 self.cz_feature_extraction[-2].bias.data.fill_(0)
             
-            elif self.cz_pred_mode == "oridinal_loss": # TODO
-                raise NotImplementedError
+#             elif self.cz_pred_mode == "oridinal_loss": # TODO
+#                 raise NotImplementedError
         
-        ###################################
-        ### Noam Regression Declaration ###
-        ###################################
-        if self.is_noam_loss and self.is_seperate_noam:
-            self.noam_feature_extraction = nn.Sequential(
-                nn.Conv2d(num_features_in, reg_feature_size, 3, padding=1),
-                nn.BatchNorm2d(reg_feature_size),
-                nn.ReLU(),
-                nn.Conv2d(reg_feature_size, reg_feature_size, kernel_size=3, padding=1),
-                nn.BatchNorm2d(reg_feature_size),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(reg_feature_size, num_anchors*8, kernel_size=3, padding=1),
-                AnchorFlatten((8))
-            )
-            self.noam_feature_extraction[-2].weight.data.fill_(0)
-            self.noam_feature_extraction[-2].bias.data.fill_(0)
+#         ###################################
+#         ### Noam Regression Declaration ###
+#         ###################################
+#         if self.is_noam_loss and self.is_seperate_noam:
+#             self.noam_feature_extraction = nn.Sequential(
+#                 nn.Conv2d(num_features_in, reg_feature_size, 3, padding=1),
+#                 nn.BatchNorm2d(reg_feature_size),
+#                 nn.ReLU(),
+#                 nn.Conv2d(reg_feature_size, reg_feature_size, kernel_size=3, padding=1),
+#                 nn.BatchNorm2d(reg_feature_size),
+#                 nn.ReLU(inplace=True),
+#                 nn.Conv2d(reg_feature_size, num_anchors*8, kernel_size=3, padding=1),
+#                 AnchorFlatten((8))
+#             )
+#             self.noam_feature_extraction[-2].weight.data.fill_(0)
+#             self.noam_feature_extraction[-2].bias.data.fill_(0)
         
+#     def forward(self, inputs):
         
-    def forward(self, inputs):
+#         # print(f"[detection_3d_head.py] inputs['features'] = {inputs['features'].shape}")
         
-        # print(f"[detection_3d_head.py] inputs['features'] = {inputs['features'].shape}")
+#         ########################
+#         ### Attention Module ###
+#         ########################
+#         if self.use_spatial_attention or self.use_channel_attention:
+#             inputs['features'] = self.cbam_layer(inputs['features']) # [1024, 18, 80]
         
-        ########################
-        ### Attention Module ###
-        ########################
-        if self.use_spatial_attention or self.use_channel_attention:
-            inputs['features'] = self.cbam_layer(inputs['features']) # [1024, 18, 80]
+#         if self.use_bam:
+#             inputs['features'] = self.bam_layer(inputs['features'])
         
-        if self.use_bam:
-            inputs['features'] = self.bam_layer(inputs['features'])
+#         if self.use_coordinate_attetion:
+#             inputs['features'] = self.coord_atten_layer(inputs['features'])
         
-        if self.use_coordinate_attetion:
-            inputs['features'] = self.coord_atten_layer(inputs['features'])
+#         ########################
+#         ### Dilation  Module ###
+#         ########################
+#         if self.num_dcnv2 != 0:
+#             for i in range(self.num_dcnv2):
+#                 inputs['features'] = self.dcn_layers[i](inputs['features'])
         
-        ########################
-        ### Dilation  Module ###
-        ########################
-        if self.num_dcnv2 != 0:
-            for i in range(self.num_dcnv2):
-                inputs['features'] = self.dcn_layers[i](inputs['features'])
+#         if self.num_pac_layer != 0:
+#             for i in range(self.num_pac_layer):
+#                 inputs['features'] = self.pac_layers[i](inputs)
         
-        if self.num_pac_layer != 0:
-            for i in range(self.num_pac_layer):
-                inputs['features'] = self.pac_layers[i](inputs)
-        
-        if self.is_pac_module or self.is_pac_module_3D:
-            inputs['features'] = self.pac_layers(inputs)
+#         if self.is_pac_module or self.is_pac_module_3D:
+#             inputs['features'] = self.pac_layers(inputs)
     
-        if self.is_rfb:
-            inputs['features'] = self.RFB_layer(inputs['features'])
+#         if self.is_rfb:
+#             inputs['features'] = self.RFB_layer(inputs['features'])
         
-        if self.is_aspp:
-            inputs['features'] = self.aspp_layer(inputs['features'])
+#         if self.is_aspp:
+#             inputs['features'] = self.aspp_layer(inputs['features'])
         
-        if self.is_cubic_pac:
-            inputs['features'] = self.pac_cubic_layer(inputs)
+#         if self.is_cubic_pac:
+#             inputs['features'] = self.pac_cubic_layer(inputs)
             
         
-        cls_preds = self.cls_feature_extraction(inputs['features'])
-        if self.exp == "no_look_ground":
-            reg_preds = self.reg_feature_extraction(inputs['features'])
-        else:
-            reg_preds = self.reg_feature_extraction(inputs)
+#         cls_preds = self.cls_feature_extraction(inputs['features'])
+#         reg_preds = self.reg_feature_extraction(inputs)
         
-        ################################
-        ### Depth Prediction  Module ###
-        ################################
-        if self.is_seperate_cz:
-            if self.cz_pred_mode == "fc":
-                dep_preds = self.cz_feature_extraction(inputs['features'])
-                dep_preds = dep_preds.permute(0, 2, 3, 1)
-                dep_preds = dep_preds.contiguous().view(dep_preds.shape[0], -1) # torch.Size([8, 368640])
-                dep_preds = self.cz_fc_layer(dep_preds) # torch.Size([8, 1440])
-                dep_preds = dep_preds.view(dep_preds.shape[0], -1, 18, 80) # torch.Size([8, 1, 18, 80])
-                dep_preds = dep_preds.repeat(1, 32, 1, 1) # torch.Size([8, 32, 18, 80])
+#         ################################
+#         ### Depth Prediction  Module ###
+#         ################################
+#         if self.is_seperate_cz:
+#             if self.cz_pred_mode == "fc":
+#                 dep_preds = self.cz_feature_extraction(inputs['features'])
+#                 dep_preds = dep_preds.permute(0, 2, 3, 1)
+#                 dep_preds = dep_preds.contiguous().view(dep_preds.shape[0], -1) # torch.Size([8, 368640])
+#                 dep_preds = self.cz_fc_layer(dep_preds) # torch.Size([8, 1440])
+#                 dep_preds = dep_preds.view(dep_preds.shape[0], -1, 18, 80) # torch.Size([8, 1, 18, 80])
+#                 dep_preds = dep_preds.repeat(1, 32, 1, 1) # torch.Size([8, 32, 18, 80])
             
-            elif self.cz_pred_mode == "look_ground":
-                dep_preds = self.cz_feature_extraction(inputs)
+#             elif self.cz_pred_mode == "look_ground":
+#                 dep_preds = self.cz_feature_extraction(inputs)
             
-            elif self.cz_pred_mode == "oridinal_loss":
-                raise NotImplementedError
-        else:
-            dep_preds = None
+#             elif self.cz_pred_mode == "oridinal_loss":
+#                 raise NotImplementedError
+#         else:
+#             dep_preds = None
         
-        ###################
-        ### NOAM Moduel ###
-        ###################
-        if self.is_noam_loss and self.is_seperate_noam:
-            nom_preds = self.noam_feature_extraction(inputs['features'])
-        else:
-            nom_preds = None
+#         ###################
+#         ### NOAM Moduel ###
+#         ###################
+#         if self.is_noam_loss and self.is_seperate_noam:
+#             nom_preds = self.noam_feature_extraction(inputs['features'])
+#         else:
+#             nom_preds = None
         
-        return {"cls_preds" : cls_preds,
-                "reg_preds" : reg_preds,
-                "dep_preds" : dep_preds,
-                "nom_preds" : nom_preds}
+#         return {"cls_preds" : cls_preds,
+#                 "reg_preds" : reg_preds,
+#                 "dep_preds" : dep_preds,
+#                 "nom_preds" : nom_preds}

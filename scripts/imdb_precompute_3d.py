@@ -11,7 +11,7 @@ from visualDet3D.networks.utils.utils import calc_iou
 from visualDet3D.data.pipeline import build_augmentator
 from visualDet3D.data.kitti.kittidata import KittiData
 from visualDet3D.utils.timer import Timer
-from visualDet3D.utils.utils import cfg_from_file
+from visualDet3D.utils.utils import cfg_from_file, create_dir
 from visualDet3D.utils.util_kitti import kitti_calib_file_parser
 from visualDet3D.data_augmentation.copy_paste import CopyPaste_Object
 
@@ -288,12 +288,7 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
     pickle.dump(frames, open(pkl_file, 'wb'))
     print("{} split finished precomputing".format(data_split))
 
-def create_dir(path):
-    if not os.path.isdir(path):
-        os.mkdir(path)
-
 def main(cfg_path:str="config/project_name/exp_name.py"):
-    print(f"cfg_path = {cfg_path}")
     assert len(cfg_path.split('/')) == 3, "config_path must be in the format of config/project_name/exp_name.py" 
     
     cfg = cfg_from_file(cfg_path)

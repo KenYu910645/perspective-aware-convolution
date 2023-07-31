@@ -4,7 +4,7 @@ import numpy as np
 
 cfg = edict()
 cfg.obj_types = ['Car']
-cfg.exp = 'baseline'
+# cfg.exp = 'baseline'
 
 # trainer
 trainer = edict(
@@ -90,8 +90,7 @@ cfg.data = data
 ## networks
 detector = edict()
 detector.obj_types = cfg.obj_types
-detector.exp = cfg.exp
-detector.name = 'GroundAwareYolo3D' # 'BevAnkYolo3D' # 'GroundAwareYolo3D'
+detector.name = 'Yolo3D'
 detector.backbone = edict(
     depth=101,
     pretrained=True,
@@ -100,7 +99,7 @@ detector.backbone = edict(
     out_indices=(2, ),
     norm_eval=False,
     dilations=(1, 1, 1),
-    exp=cfg.exp,
+    # exp=cfg.exp,
 )
 head_loss = edict(
     fg_iou_threshold = 0.5,
@@ -145,7 +144,7 @@ detector.head = edict(
     layer_cfg       = head_layer,
     loss_cfg        = head_loss,
     test_cfg        = head_test,
-    exp             = cfg.exp,
+    # exp             = cfg.exp,
     data_cfg        = data,
     is_pac_module   = True,
 )

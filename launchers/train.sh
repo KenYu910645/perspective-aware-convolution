@@ -19,8 +19,8 @@ NUM_GPUS=$(($(echo $GPUS | grep -o ',' | wc -l) + 1)) # count number of ',' and 
 
 if [ $NUM_GPUS == 1 ]; then 
     echo -e "Number of GPUs being 1, will directly launch:\n\t python3 train --experiment_name=$EXP_NAME"
-    CUDA_VISIBLE_DEVICES=$GPUS python3 scripts/train.py --config=$CONFIG_PATH --experiment_name=$EXP_NAME 
+    CUDA_VISIBLE_DEVICES=$GPUS python3 scripts/train.py --cfg_path=$CONFIG_PATH --experiment_name=$EXP_NAME 
 else
     echo -e "Distributed Training on GPU $GPUS, total number of gpus is $NUM_GPUS\n"
-    CUDA_VISIBLE_DEVICES=$GPUS python3 -m torch.distributed.launch --nproc_per_node=$NUM_GPUS scripts/train.py --config=$CONFIG_PATH --experiment_name=$EXP_NAME --world_size=$NUM_GPUS
+    CUDA_VISIBLE_DEVICES=$GPUS python3 -m torch.distributed.launch --nproc_per_node=$NUM_GPUS scripts/train.py --cfg_path=$CONFIG_PATH --experiment_name=$EXP_NAME --world_size=$NUM_GPUS
 fi

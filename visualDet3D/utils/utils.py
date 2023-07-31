@@ -8,8 +8,6 @@ import shutil
 import importlib
 from easydict import EasyDict
 
-from visualDet3D.noam.noam import noam_encode
-
 class LossLogger():
     def __init__(self, recorder, data_split='train'):
         self.recorder = recorder
@@ -100,7 +98,7 @@ def draw_3D_box(img, corners, color = (255, 255, 0)):
     cv2.line(img, points[0], points[1], color)
     return img
 
-def compound_annotation(labels, max_length, bbox2d, bbox3d, loc_3d_ry, obj_types, calibs, is_noam_loss=False):
+def compound_annotation(labels, max_length, bbox2d, bbox3d, loc_3d_ry, obj_types, calibs):
     """ Compound numpy-like annotation formats. Borrow from Retina-Net
     Args:
         labels: List[List[str]], [B][num_gts] - 'Car'
@@ -119,37 +117,15 @@ def compound_annotation(labels, max_length, bbox2d, bbox3d, loc_3d_ry, obj_types
     """
     # B = len(labels) # batch size
     
-    if   is_noam_loss: annotations = np.ones([len(labels), max_length, 24]) * -1
-    else             : annotations = np.ones([len(labels), max_length, 16]) * -1
-    
+    annotations = np.ones([len(labels), max_length, 16]) * -1
     for i_batch in range(len(labels)):
         label = labels[i_batch]
-        if is_noam_loss:
-            if len(label) != 0:                
-                xyzwhl = np.concatenate([loc_3d_ry[i_batch][:,  :3],
-                                        bbox3d   [i_batch][:, 4:5],
-                                        bbox3d   [i_batch][:, 3:4],
-                                        bbox3d   [i_batch][:, 5:6] ], axis=1)
-                # print(f"xyzwhl = {xyzwhl.shape}")
-                
-                noam = noam_encode(xyzwhl, calibs[i_batch].cpu().numpy()) # (n_gts, 8)
-
-            for i_gt in range(len(label)): # Number of Groundtrue
-                annotations[i_batch, i_gt] = np.concatenate([
-                    bbox2d[i_batch][i_gt], 
-                    [obj_types.index(label[i_gt])],
-                    bbox3d[i_batch][i_gt],
-                    loc_3d_ry[i_batch][i_gt],
-                    noam[i_gt, :]])
-        else:
-            for i_gt in range(len(label)): # Number of Groundtrue
-                annotations[i_batch, i_gt] = np.concatenate([
-                    bbox2d[i_batch][i_gt], 
-                    [obj_types.index(label[i_gt])],
-                    bbox3d[i_batch][i_gt],
-                    loc_3d_ry[i_batch][i_gt]])
-
-    # annotations = np.ones([len(labels), max_length, 16]) * -1
+        for i_gt in range(len(label)): # Number of Groundtrue
+            annotations[i_batch, i_gt] = np.concatenate([
+                bbox2d[i_batch][i_gt], 
+                [obj_types.index(label[i_gt])],
+                bbox3d[i_batch][i_gt],
+                loc_3d_ry[i_batch][i_gt]])
     
 
     # The block that works
@@ -201,3 +177,8 @@ def cfg_from_file(cfg_filename:str)->EasyDict:
         temp_config_file.close()
 
     return cfg
+
+def create_dir(path):
+    if not os.path.isdir(path):
+        os.mkdir(path)
+        print(f"Create directory at {path}")

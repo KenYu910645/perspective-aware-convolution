@@ -115,11 +115,9 @@ class ResNet(nn.Module):
                        out_indices:Tuple[int, ...]=(-1, 0, 1, 2, 3),
                        frozen_stages:int=-1,
                        norm_eval:bool=True,
-                       exp:str='',
                        use_bam_in_resnet:bool=False,
                        drop_last_downsample:bool=False,
                        ):
-        self.exp = exp
         self.use_bam_in_resnet = use_bam_in_resnet
         self.drop_last_downsample = drop_last_downsample
         print(f"self.use_bam_in_resnet = {self.use_bam_in_resnet}")
@@ -220,10 +218,7 @@ class ResNet(nn.Module):
         #############
         ### Conv1 ###
         #############
-        if self.exp == 'B':# For Experiment B
-            x = self.coordconv1(img_batch) # 5 channels
-        else:
-            x = self.conv1(img_batch) # Original, 3 channels
+        x = self.conv1(img_batch) # Original, 3 channels
         x = self.bn1(x)
         x = self.relu(x)
         

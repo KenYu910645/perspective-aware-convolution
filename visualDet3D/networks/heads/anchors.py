@@ -67,16 +67,16 @@ class Anchors(nn.Module):
             for i in range(len(obj_types)):
                 npy_file = os.path.join(os.path.join(preprocessed_path, 'training', f'anchor_mean_{obj_types[i]}.npy'))
                 std_file = os.path.join(os.path.join(preprocessed_path, 'training', f'anchor_std_{obj_types[i]}.npy'))
-                print(f"[Anchor.py] Loading {npy_file}") # (16, 2, 6)
-                print(f"[Anchor.py] Loading {std_file}") # (16, 2, 6)
+                # print(f"[anchor.py] Loading {npy_file}") # (16, 2, 6)
+                # print(f"[anchor.py] Loading {std_file}") # (16, 2, 6)
                 self.anchors_avg_original.append( np.load(npy_file) ) # [16, 2, 6] #[z,  sinalpha, cosalpha, w, h, l,]
                 self.anchors_std_original.append( np.load(std_file) ) # [16, 2, 6] #[z,  sinalpha, cosalpha, w, h, l,]
                 # self.anchors_avg_original[i] = np.load(npy_file) #[16, 2, 6] #[z,  sinalpha, cosalpha, w, h, l,]
                 # self.anchors_std_original[i] = np.load(std_file) #[16, 2, 6] #[z,  sinalpha, cosalpha, w, h, l,]
             self.anchors_avg_original = np.array(self.anchors_avg_original) # (1, 32, 6)
             self.anchors_std_original = np.array(self.anchors_std_original) # (1, 32, 6)
-            print(f"self.anchors_avg_original = {self.anchors_avg_original.shape}") # (1, 32, 6)
-            print(f"self.anchors_std_original = {self.anchors_std_original.shape}") # (1, 32, 6)
+            # print(f"self.anchors_avg_original = {self.anchors_avg_original.shape}") # (1, 32, 6)
+            # print(f"self.anchors_std_original = {self.anchors_std_original.shape}") # (1, 32, 6)
         
         #######################
         ### External Anchor ###
