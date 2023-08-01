@@ -24,8 +24,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
-from easydict import EasyDict
 from visualDet3D.utils.utils import compound_annotation
+from easydict import EasyDict as edict
 
 # For print out loss
 loss_avg_dict = {"1/reg_loss": 0,
@@ -55,14 +55,17 @@ def main(cfg_path="config/config.py", experiment_name="default", world_size=1, l
     cfg = cfg_from_file(cfg_path)
     
     # Collect distributed(or not) information
-    cfg.dist = EasyDict()
+    cfg.dist = edict()
     cfg.dist.world_size = world_size
     cfg.dist.local_rank = local_rank
     is_distributed = local_rank >= 0 # local_rank < 0 -> single training
     is_logging     = local_rank <= 0 # only log and test with main process
     is_evaluating  = local_rank <= 0
 
-    # Setup writer if local_rank > 0
+    
+
+    # TODO, this should be deleted after combine this file with preprocessing step
+    cfg.path = edict()
     cfg.path.project_path      = os.path.join('exp_output', cfg_path.split('/')[1], cfg_path.split('/')[2])
     cfg.path.log_path          = os.path.join(cfg.path.project_path, "log")
     cfg.path.checkpoint_path   = os.path.join(cfg.path.project_path, "checkpoint")
@@ -86,6 +89,7 @@ def main(cfg_path="config/config.py", experiment_name="default", world_size=1, l
         writer = None
 
     ## Set up GPU and distribution process
+    # Setup writer if local_rank > 0
     if is_distributed:
         cfg.trainer.gpu = local_rank # local_rank will overwrite the GPU in configure file
     gpu = min(cfg.trainer.gpu, torch.cuda.device_count() - 1)
@@ -113,7 +117,8 @@ def main(cfg_path="config/config.py", experiment_name="default", world_size=1, l
     cfg.detector.loss.iou_type = getattr(cfg.detector.loss, 'iou_type', 'baseline')
     
     # Create the model
-    detector = DETECTOR_DICT[cfg.detector.name](cfg.detector)
+    # detector = DETECTOR_DICT[cfg.detector.name](cfg.detector)
+    detector = DETECTOR_DICT[cfg.detector.name](cfg)
 
     # Load old model if needed
     old_checkpoint = getattr(cfg.path, 'pretrained_checkpoint', None)

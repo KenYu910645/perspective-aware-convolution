@@ -8,22 +8,24 @@ from visualDet3D.networks.heads.detection_3d_head import AnchorBasedDetection3DH
 
 @DETECTOR_DICT.register_module
 class Yolo3D(nn.Module):
-    def __init__(self, detector_cfg):
+    def __init__(self, cfg):
         super(Yolo3D, self).__init__()
         
-        self.obj_types = detector_cfg.obj_types
+        # self.obj_types = detector_cfg.obj_types
         
-        self.is_das = getattr(detector_cfg, 'is_das', False)
+        self.is_das = getattr(cfg.detector.head, 'is_das', False)
         
-        self.build_head(detector_cfg)
-
-        # self.build_core(detector_cfg)
+        # self.build_head(cfg.detector)
+        # self.bbox_head = AnchorBasedDetection3DHead(**(cfg.detector.head))
+        self.bbox_head = AnchorBasedDetection3DHead(cfg)
+        
+        # self.build_core(cfg.detector)
         
         # Build backbone
-        if "resnext_mode_name" in detector_cfg.backbone:
+        if "resnext_mode_name" in cfg.detector.backbone:
             print(f"Using ResNext as Backbone")
             resnext_mode = torch.hub.load('pytorch/vision:v0.10.0', 
-                                           detector_cfg.backbone["resnext_mode_name"], 
+                                           cfg.detector.backbone["resnext_mode_name"], 
                                            pretrained=True)
             
             # Get a list of child modules
@@ -37,11 +39,11 @@ class Yolo3D(nn.Module):
             # Reconstruct the model with the remaining modules
             self.backbone = nn.Sequential(*child_modules)
         else:
-            self.backbone = resnet(**detector_cfg.backbone)
+            self.backbone = resnet(**cfg.detector.backbone)
 
-        self.detector_cfg = detector_cfg
-
-        self.detector_cfg.head.is_seperate_cz = getattr(detector_cfg.head, 'is_seperate_cz', False)
+        # self.detector_cfg = cfg.detector
+        self.cfg = cfg
+        self.cfg.detector.head.is_seperate_cz = getattr(cfg.detector.head, 'is_seperate_cz', False)
         
         self.is_writen_anchor_file = False
         
@@ -57,8 +59,8 @@ class Yolo3D(nn.Module):
     #         **(detector_cfg.head)
     #     )
 
-    def build_head(self, detector_cfg):
-        self.bbox_head = AnchorBasedDetection3DHead(**(detector_cfg.head))
+    # def build_head(self, detector_cfg):
+    #     self.bbox_head = AnchorBasedDetection3DHead(**(detector_cfg.head))
 
     def backbone_forward(self, x):
         # print(f"x['image'] = {x['image'].shape}") # torch.Size([8, 3, 288, 1280])

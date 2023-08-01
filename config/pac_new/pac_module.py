@@ -18,26 +18,24 @@ cfg.trainer = edict(
 
 # path
 # path = edict()
-cfg.path.data_path = 'dataset/kitti/training'# "/data/kitti_obj/training" # used in visualDet3D/data/.../dataset
-cfg.path.test_path = 'dataset/kitti/testing' # ""
+# cfg.train_data_path = 'dataset/kitti/training'# "/data/kitti_obj/training" # used in visualDet3D/data/.../dataset
+# cfg.test_data_path = 'dataset/kitti/testing' # ""
 # path.visualDet3D_path = 'visualDet3D' # "/path/to/visualDet3D/visualDet3D" # The path should point to the inner subfolder
 # path.project_path = 'exp_output/pac_new' # "/path/to/visualDet3D/workdirs" # or other path for pickle files, checkpoints, tensorboard logging and output files.
 # path.pretrained_checkpoint = "/home/lab530/KenYu/visualDet3D/exp_output/mixup/kitti_mixup_1/Mono3D/checkpoint/GroundAwareYolo3D_latest.pth"
 # cfg.path = path
 
-## optimizer
+# optimizer
 cfg.optimizer = edict(
     type_name = 'adam',
     keywords = edict(lr = 1e-4, weight_decay = 0,),
     clipped_gradient_norm = 0.1
 )
-# cfg.optimizer = optimizer
 
 cfg.scheduler = edict(
     type_name = 'CosineAnnealingLR',
     keywords = edict(T_max = cfg.trainer.max_epochs, eta_min = 3e-5,),
 )
-# cfg.scheduler = scheduler
 
 cfg.data = edict(
     batch_size = 8,
@@ -52,34 +50,37 @@ cfg.data = edict(
     max_occlusion =  1000, # 2
     min_z         = -1000, # 3
     is_overwrite_anchor_file = False,
-)
 
-cfg.data.augmentation = edict(
-    rgb_mean = np.array([0.485, 0.456, 0.406]),
-    rgb_std  = np.array([0.229, 0.224, 0.225]),
-    cropSize = (data.rgb_shape[0], data.rgb_shape[1]),
-    crop_top = 100,
+    train_data_path = 'dataset/kitti/training',
+    test_data_path = 'dataset/kitti/testing',
+
+    augmentation = edict(
+        rgb_mean = np.array([0.485, 0.456, 0.406]),
+        rgb_std  = np.array([0.229, 0.224, 0.225]),
+        cropSize = (288, 1280),
+        crop_top = 100,
+    ),
 )
 
 cfg.data.train_augmentation = [
     edict(type_name='ConvertToFloat'),
     edict(type_name='PhotometricDistort', keywords=edict(distort_prob=1.0, contrast_lower=0.5, contrast_upper=1.5, saturation_lower=0.5, saturation_upper=1.5, hue_delta=18.0, brightness_delta=32)),
-    edict(type_name='CropTop', keywords=edict(crop_top_index=data.augmentation.crop_top)),
-    edict(type_name='Resize', keywords=edict(size=data.augmentation.cropSize)),
-    edict(type_name='RandomMirror', keywords=edict(mirror_prob=0.5)),
-    edict(type_name='Normalize', keywords=edict(mean=data.augmentation.rgb_mean, stds=data.augmentation.rgb_std))
+    edict(type_name='CropTop'           , keywords=edict(crop_top_index=cfg.data.augmentation.crop_top)),
+    edict(type_name='Resize'            , keywords=edict(size=cfg.data.augmentation.cropSize)),
+    edict(type_name='RandomMirror'      , keywords=edict(mirror_prob=0.5)),
+    edict(type_name='Normalize'         , keywords=edict(mean=cfg.data.augmentation.rgb_mean, stds=cfg.data.augmentation.rgb_std))
 ]
+
 cfg.data.test_augmentation = [
     edict(type_name='ConvertToFloat'),
-    edict(type_name='CropTop', keywords=edict(crop_top_index=data.augmentation.crop_top)),
-    edict(type_name='Resize', keywords=edict(size=data.augmentation.cropSize)),
-    edict(type_name='Normalize', keywords=edict(mean=data.augmentation.rgb_mean, stds=data.augmentation.rgb_std))
+    edict(type_name='CropTop', keywords=edict(crop_top_index=cfg.data.augmentation.crop_top)),
+    edict(type_name='Resize', keywords=edict(size=cfg.data.augmentation.cropSize)),
+    edict(type_name='Normalize', keywords=edict(mean=cfg.data.augmentation.rgb_mean, stds=cfg.data.augmentation.rgb_std))
 ]
-# cfg.data = data
 
 ## networks
-# detector = edict()
-cfg.detector.obj_types = cfg.obj_types
+cfg.detector = edict()
+# cfg.detector.obj_types = cfg.obj_types
 cfg.detector.name = 'Yolo3D'
 cfg.detector.backbone = edict(
     depth=101,
@@ -133,27 +134,45 @@ cfg.detector.test = edict(
 cfg.detector.head = edict(
     num_regression_loss_terms=13,
     num_classes     = len(cfg.obj_types),
-    # anchors_cfg     = anchors,
-    # layer_cfg       = head_layer,
-    # loss_cfg        = head_loss,
-    # test_cfg        = head_test,
-    # data_cfg        = data,
-    is_pac_module   = True,
-    num_features_in=1024,
-    num_anchors=32,
-    num_cls_output=len(cfg.obj_types)+1,
-    num_reg_output=12,
+    num_features_in = 1024,
+    num_anchors     = 32,
+    num_cls_output  = len(cfg.obj_types)+1,
+    num_reg_output  = 12,
     cls_feature_size=512,
     reg_feature_size=1024,
+
+    is_pac_module   = True,
 )
 
 cfg.detector.anchors = edict(
-    obj_types = cfg.obj_types,
+    # obj_types = cfg.obj_types,
     pyramid_levels = [4],
     strides = [2 ** 4],
     sizes = [24],
     ratios = np.array([0.5, 1]),
     scales = np.array([2 ** (i / 4.0) for i in range(16)]),
+    anchor_prior         = True,
+    external_anchor_path = "",
+)
+
+cfg.detector.attention_module = edict(
+    use_channel_attention = False,
+    use_spatial_attention = False,
+    use_bam = False,
+    use_coordinate_attetion = False, 
+)
+
+cfg.detector.pac = edict(
+    pac_mode          = 
+    num_pac_layer     = 
+    adpative_P2
+    offset_2d
+    offset_3d
+    is_pac_bn_relu
+    is_pac_module
+    is_pac_module_3D
+    lock_theta_ortho = 
+    is_cubic_pac
 )
 
 cfg.detector.loss = edict(
@@ -166,5 +185,3 @@ cfg.detector.loss = edict(
     regression_weight = [1, 1, 1, 1, 1, 1, 3, 1, 1, 0.5, 0.5, 0.5, 1], #[x, y, w, h, cx, cy, z, sin2a, cos2a, w, h, l]
     filter_anchor = False, # This prevent anchor filtering !!
 )
-
-# cfg.detector = detector

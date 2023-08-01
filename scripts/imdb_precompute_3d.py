@@ -4,6 +4,8 @@ import pickle
 import cv2
 from copy import deepcopy
 import torch
+from easydict import EasyDict as edict
+from fire import Fire
 
 from _path_init import *
 from visualDet3D.networks.heads.anchors import Anchors, load_from_pkl_or_npy, generate_anchors
@@ -43,9 +45,11 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
     print("start reading {} data".format(data_split))
     timer = Timer()
 
-    anchor_prior         = getattr(cfg.detector.anchors, 'anchor_prior', True)
-    external_anchor_path = getattr(cfg.detector.anchors, 'external_anchor_path', "")
-    is_das               = getattr(cfg.detector.anchors, 'is_das', False)
+    # anchor_prior         = getattr(cfg.detector.anchors, 'anchor_prior', True)
+    # external_anchor_path = getattr(cfg.detector.anchors, 'external_anchor_path', "")
+    # is_das               = getattr(cfg.detector.anchors, 'is_das', False)
+    external_anchor_path = cfg.detector.head.anchor.external_anchor_path
+    anchor_prior         = cfg.detector.head.anchor.anchor_prior
     
     total_objects        = [0 for _ in range(len(cfg.obj_types))]
     total_usable_objects = [0 for _ in range(len(cfg.obj_types))]
@@ -62,14 +66,15 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
     
     # Initalize mean_std things
     if anchor_prior:
-        anchor_manager = Anchors(cfg.path.preprocessed_path, readConfigFile=False, **cfg.detector.head.anchors_cfg)
+        # anchor_manager = Anchors(cfg.path.preprocessed_path, readConfigFile=False, **cfg.detector.anchors)
+        anchor_manager = Anchors(cfg, is_training_process=False)
         preprocess = build_augmentator(cfg.data.test_augmentation)
         total_objects        = [0 for _ in range(len(cfg.obj_types))]
         total_usable_objects = [0 for _ in range(len(cfg.obj_types))]
         
         len_scale  = len(anchor_manager.scales)
         len_ratios = len(anchor_manager.ratios)
-        len_level  = len(anchor_manager.pyramid_levels) if not is_das else 1
+        len_level  = len(anchor_manager.pyramid_levels) if not cfg.detector.head.is_das else 1
         
         if external_anchor_path == "": 
             num_covered_gt = np.zeros([len(cfg.obj_types), len_level * len_scale, len_ratios]) # [1, 16, 2]
@@ -168,13 +173,13 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
                     # print(f"IoU_max_anchor = {IoU_max_anchor.shape}")
 
                     # Get covered and missed groundtrue for visualization
-                    covered_gt_mask = IoU_max > cfg.detector.head.loss_cfg.fg_iou_threshold
+                    covered_gt_mask = IoU_max > cfg.detector.loss.fg_iou_threshold
                     if bbox2d_gt[ covered_gt_mask].shape[0] != 0: cover_bbox2d_gts.append(bbox2d_gt[ covered_gt_mask])
                     if bbox2d_gt[~covered_gt_mask].shape[0] != 0: misss_bbox2d_gts.append(bbox2d_gt[~covered_gt_mask])
                     
                     total_usable_objects[j] += torch.sum(covered_gt_mask).item()
 
-                    positive_anchors_mask = IoU_max_anchor > cfg.detector.head.loss_cfg.fg_iou_threshold
+                    positive_anchors_mask = IoU_max_anchor > cfg.detector.loss.fg_iou_threshold
                     positive_gts_xyzsc = bbox3d_gt[IoU_argmax_anchor[positive_anchors_mask]].cpu().numpy()
                     # print(f"positive_gts_xyzsc = {positive_gts_xyzsc.shape}") # (num_positive, 5)
 
@@ -292,6 +297,7 @@ def main(cfg_path:str="config/project_name/exp_name.py"):
     assert len(cfg_path.split('/')) == 3, "config_path must be in the format of config/project_name/exp_name.py" 
     
     cfg = cfg_from_file(cfg_path)
+    cfg.path = edict()
     cfg.path.project_path      = os.path.join('exp_output', cfg_path.split('/')[1], cfg_path.split('/')[2])
     cfg.path.log_path          = os.path.join(cfg.path.project_path, "log")
     cfg.path.checkpoint_path   = os.path.join(cfg.path.project_path, "checkpoint")
@@ -312,7 +318,7 @@ def main(cfg_path:str="config/project_name/exp_name.py"):
     
     is_copy_paste = any(d['type_name'] == 'CopyPaste' for d in cfg.data.train_augmentation)
     
-    data_root_dir = cfg.path.data_path # the base directory of training dataset
+    # data_root_dir = cfg.data.train_data_path # cfg.path.data_path # the base directory of training dataset
     
     # Load training datatset
     output_dict = {"calib": True,
@@ -321,7 +327,7 @@ def main(cfg_path:str="config/project_name/exp_name.py"):
                    "velodyne": False,
                    "depth": is_copy_paste,}
     train_names, val_names = process_train_val_file(cfg)
-    read_one_split(cfg, train_names, data_root_dir, output_dict, 'training')
+    read_one_split(cfg, train_names, cfg.data.train_data_path, output_dict, 'training')
     
     # Load validation datatset
     output_dict = {"calib": True,
@@ -329,10 +335,9 @@ def main(cfg_path:str="config/project_name/exp_name.py"):
                    "label": True,
                    "velodyne": False,
                    "depth": False,}
-    read_one_split(cfg, val_names, data_root_dir, output_dict, 'validation')
+    read_one_split(cfg, val_names, cfg.data.train_data_path, output_dict, 'validation')
 
     print("Preprocessing finished")
 
 if __name__ == '__main__':
-    from fire import Fire
     Fire(main)

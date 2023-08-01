@@ -18,55 +18,67 @@ def load_from_pkl_or_npy(file_path):
         raise NotImplementedError
 
 class Anchors(nn.Module):
-    """ 
-    Anchor modules for multi-level dense output.
-    """
-    def __init__(self, preprocessed_path:str,
-                       pyramid_levels:List[int], 
-                       strides:List[float], 
-                       sizes:List[float], 
-                       ratios:List[float], 
-                       scales:List[float],
-                       readConfigFile:int=1, 
-                       obj_types:List[str]=[],
-                       filter_anchors:bool=True, 
-                       filter_y_threshold_min_max:Optional[Tuple[float, float]]=(-0.5, 1.8), 
-                       filter_x_threshold:Optional[float]=40.0,
-                       anchor_prior_channel=6,
-                       is_das:bool=False,
-                       external_anchor_path:str="",
-                       anchor_prior:bool=True,):
+
+    # def __init__(self, preprocessed_path:str,
+    #                    pyramid_levels:List[int], 
+    #                    strides:List[float], 
+    #                    sizes:List[float], 
+    #                    ratios:List[float], 
+    #                    scales:List[float],
+    #                    readConfigFile:int=1, 
+    #                    obj_types:List[str]=[],
+    #                    filter_y_threshold_min_max:Optional[Tuple[float, float]]=(-0.5, 1.8), 
+    #                    filter_x_threshold:Optional[float]=40.0,
+    #                    anchor_prior_channel=6,
+    #                    is_das:bool=False,
+    #                    external_anchor_path:str="",
+    #                    anchor_prior:bool=True,):
+    def __init__(self, cfg, is_training_process = True):
         super(Anchors, self).__init__()
 
-        self.pyramid_levels = pyramid_levels
-        self.strides = strides
-        self.sizes = sizes
-        self.ratios = ratios
-        self.scales = scales
+        # cfg.detector.anchors = edict(
+        #     obj_types = cfg.obj_types,
+        #     pyramid_levels = [4],
+        #     strides = [2 ** 4],
+        #     sizes = [24],
+        #     ratios = np.array([0.5, 1]),
+        #     scales = np.array([2 ** (i / 4.0) for i in range(16)]),
+        # )
+
+        self.cfg = cfg
+        self.anchor_cfg = cfg.detector.anchors
+        self.is_training_process = is_training_process
+
+        self.pyramid_levels = cfg.detector.anchors.pyramid_levels
+        self.strides        = cfg.detector.anchors.strides
+        self.sizes          = cfg.detector.anchors.sizes
+        self.ratios         = cfg.detector.anchors.ratios
+        self.scales         = cfg.detector.anchors.scales
         self.shape = None
         self.P2 = None
-        self.is_training_process = readConfigFile
+        
         self.scale_step = 1 / (np.log2(self.scales[1]) - np.log2(self.scales[0]))
         print(f"[anchors.py] self.is_training_process = {self.is_training_process}") # True during training, False during preprocessing
         
-        self.external_anchor_path = external_anchor_path
-        self.anchor_prior = anchor_prior
-        print(f"[anchors.py] external_anchor_path = {self.external_anchor_path}")
-        print(f"[anchors.py] self.anchor_prior = {anchor_prior}")
-        self.is_das = is_das
+        # self.external_anchor_path = external_anchor_path
+        # self.anchor_prior = anchor_prior
+        # print(f"[anchors.py] external_anchor_path = {self.external_anchor_path}")
+        # print(f"[anchors.py] self.anchor_prior = {anchor_prior}")
 
-        self.anchors_mean_original = np.zeros([len(obj_types), len(self.scales), len(self.ratios), anchor_prior_channel])
-        self.anchors_std_original  = np.zeros([len(obj_types), len(self.scales), len(self.ratios), anchor_prior_channel])
-        self.anchors_mean_original = np.zeros([len(obj_types), len(self.scales) * len(self.pyramid_levels), len(self.ratios), anchor_prior_channel])
-        self.anchors_std_original  = np.zeros([len(obj_types), len(self.scales) * len(self.pyramid_levels), len(self.ratios), anchor_prior_channel])
+        # self.is_das = is_das
+
+        self.anchors_mean_original = np.zeros([len(cfg.obj_types), len(self.scales), len(self.ratios), 6])
+        self.anchors_std_original  = np.zeros([len(cfg.obj_types), len(self.scales), len(self.ratios), 6])
+        self.anchors_mean_original = np.zeros([len(cfg.obj_types), len(self.scales) * len(self.pyramid_levels), len(self.ratios), 6])
+        self.anchors_std_original  = np.zeros([len(cfg.obj_types), len(self.scales) * len(self.pyramid_levels), len(self.ratios), 6])
         
         if self.is_training_process: # For training process
             # Load mean and std file that calcualted during preprocessing
             self.anchors_avg_original = []
             self.anchors_std_original = []
-            for i in range(len(obj_types)):
-                npy_file = os.path.join(os.path.join(preprocessed_path, 'training', f'anchor_mean_{obj_types[i]}.npy'))
-                std_file = os.path.join(os.path.join(preprocessed_path, 'training', f'anchor_std_{obj_types[i]}.npy'))
+            for i in range(len(cfg.obj_types)):
+                npy_file = os.path.join(os.path.join(cfg.path.preprocessed_path, 'training', f'anchor_mean_{cfg.obj_types[i]}.npy'))
+                std_file = os.path.join(os.path.join(cfg.path.preprocessed_path, 'training', f'anchor_std_{cfg.obj_types[i]}.npy'))
                 # print(f"[anchor.py] Loading {npy_file}") # (16, 2, 6)
                 # print(f"[anchor.py] Loading {std_file}") # (16, 2, 6)
                 self.anchors_avg_original.append( np.load(npy_file) ) # [16, 2, 6] #[z,  sinalpha, cosalpha, w, h, l,]
@@ -81,15 +93,15 @@ class Anchors(nn.Module):
         #######################
         ### External Anchor ###
         #######################, Get anchor from other sources
-        if self.external_anchor_path != "":
+        if self.anchor_cfg.external_anchor_path != "":
             '''
             You need to pass in three files 
             2dbbox: (num_anchor, 4), [x1, y1, x2, y2]
             mean  : (num_anchor, 6), [z, sin2a, cos2a, w, h, l]
             std   : (num_anchor, 6), [z, sin2a, cos2a, w, h, l]
             '''
-            anchor_fns = [os.path.join(self.external_anchor_path, fns) for fns in os.listdir(self.external_anchor_path)]
-            print(f"Total {len(anchor_fns)} anchor files found in {self.external_anchor_path}")
+            anchor_fns = [os.path.join(self.anchor_cfg.external_anchor_path, fns) for fns in os.listdir(self.anchor_cfg.external_anchor_path)]
+            print(f"Total {len(anchor_fns)} anchor files found in {self.anchor_cfg.external_anchor_path}")
             
             assert len(anchor_fns) == 1 or len(anchor_fns) == 3, "Too few or too much files, can only support one 2ddbox file or three files"
             
@@ -97,15 +109,12 @@ class Anchors(nn.Module):
             self.bbox2d_npy   = load_from_pkl_or_npy( next(f for f in anchor_fns if "2dbbox" in f) )
             
             # Load mean anchor file
-            if anchor_prior:
+            if self.anchor_cfg.anchor_prior:
                 self.mean_npy = None
                 self.std_npy  = None
             else:
                 self.mean_npy = load_from_pkl_or_npy( next(f for f in anchor_fns if "mean" in f) )
                 self.std_npy  = load_from_pkl_or_npy( next(f for f in anchor_fns if "std"  in f) )
-
-        self.filter_y_threshold_min_max = filter_y_threshold_min_max
-        self.filter_x_threshold = filter_x_threshold
 
     def anchors2indexes(self, anchors:np.ndarray)->Tuple[np.ndarray, np.ndarray]:
         """
@@ -113,13 +122,10 @@ class Anchors(nn.Module):
             computations in numpy: anchors[N, 4]
             return: sizes_int [N,]  ratio_ints [N, ]
         """
-        # print(f"np.array(self.sizes) = {np.array(self.sizes)}")
-        # print(f"np.array(self.scales) = {np.array(self.scales)}")
-        # print(f"anchors = {anchors.shape}")
         # Find the the closert sizes
-        if self.external_anchor_path == "":
+        if self.anchor_cfg.external_anchor_path == "":
             sizes = np.sqrt((anchors[:, 2] - anchors[:, 0]) * (anchors[:, 3] - anchors[:, 1])) # area
-            if self.is_das:
+            if self.cfg.detector.head.is_das:
                 sizes_diff = sizes - (np.array(self.sizes[0]) * np.array(self.scales))[:, np.newaxis]
             else:
                 sizes_diff = sizes - (np.array(self.sizes   ) * np.array(self.scales))[:, np.newaxis]
@@ -131,8 +137,7 @@ class Anchors(nn.Module):
 
             return sizes_int, ratio_int
 
-    def forward(self, image:torch.Tensor, calibs:List[np.ndarray]=[], is_filtering=False): 
-        # print(f"[anchor.py] is_filtering = {is_filtering}")
+    def forward(self, image:torch.Tensor, calibs:List[np.ndarray]=[]): 
         
         shape = image.shape[2:] # torch.Size([288, 1280])
         if self.shape is None or not (shape == self.shape): # This block will only execute once during training
@@ -149,7 +154,7 @@ class Anchors(nn.Module):
                 ###########################
                 ### Get anchors(2dbbox) ###
                 ###########################
-                if self.external_anchor_path == "": # Generate Anchor by yourself
+                if self.anchor_cfg.external_anchor_path == "": # Generate Anchor by yourself
                     anchors = generate_anchors(base_size=self.sizes[idx], ratios=self.ratios, scales=self.scales)
                 
                 else: # Use External Anchor
@@ -161,7 +166,7 @@ class Anchors(nn.Module):
                 
                 print(f"[anchors.py] anchors = {anchors.shape}") # (32, 4) From smallest to largest anchor
                 print(f"[anchors.py] self.strides[idx] = {self.strides[idx]}")
-                if self.is_das:
+                if self.cfg.detector.head.is_das:
                     print(f"[anchors.py] self.strides[idx] = {self.strides[idx]}")
                     if   p == 3: y_range = (6, 14) # (4, 14)
                     elif p == 4: y_range = (7,  9) # (7, 12)
@@ -178,7 +183,7 @@ class Anchors(nn.Module):
                 ############################################################
                 ### Get mean and std of anchors from preprocessing files ###
                 ############################################################
-                if self.anchor_prior: # Use pre-processed mean and std file
+                if self.anchor_cfg.anchor_prior: # Use pre-processed mean and std file
                     # TODO, currently only support single object
                     print(f"Using pre-processed mean and std")
                     print(f"self.anchors_avg_original = {self.anchors_avg_original.shape}") # (1, 16, 2, 6)
@@ -242,27 +247,12 @@ class Anchors(nn.Module):
             cy = P2[:, 1:2, 2:3] #[B,1, 1]
             cx = P2[:, 0:1, 2:3] #[B,1, 1]
             N = self.anchors.shape[1]
-            if self.is_training_process and is_filtering:
-                # anchor_means is from dataset statistic; therefore, z is dependent on data distribution
-                anchors_z = self.anchor_means[:, :, 0] #[types, N] # torch.Size([1, 46080])
-                # a = torch.flatten(anchors_z)
-                # print(f"[anchor.py] number of uninitlized anchor = { torch.count_nonzero(a[ a[:] == -100 ])}") # torch.Size([1, 46080])
-                # print(f"[anchor.py] number of initialized anchor = { torch.count_nonzero(a[ a[:] != -100 ])}") # torch.Size([1, 46080])
 
-                # Accoording to paper's formular (1)
-                world_x3d = (self.anchors_image_x_center * anchors_z - anchors_z.new(cx) * anchors_z) / anchors_z.new(fy) #[B, types, N]
-                world_y3d = (self.anchors_image_y_center * anchors_z - anchors_z.new(cy) * anchors_z) / anchors_z.new(fy) #[B, types, N]
-                
-                # print(f"self.filter_y_threshold_min_max = {self.filter_y_threshold_min_max}") #  (-0.5, 1.8)
-                
-                self.useful_mask = torch.any( (world_y3d > self.filter_y_threshold_min_max[0]) *
-                                              (world_y3d < self.filter_y_threshold_min_max[1]) *
-                                              (world_x3d.abs() < self.filter_x_threshold), dim=1)  #[B,N] any one type lies in target range
-            else:
-                self.useful_mask = torch.ones([len(P2), N], dtype=torch.bool, device="cuda")
+            # Enable all anchors
+            self.useful_mask = torch.ones([len(P2), N], dtype=torch.bool, device="cuda")
+            
             # print(f"self.useful_mask = {self.useful_mask.shape}") # torch.Size([8, 61520])
             # print(f"[anchor.py] self.useful_mask = {torch.count_nonzero(self.useful_mask[0])}") # 9684
-            
             
             if self.is_training_process:
                 return self.anchors, self.useful_mask, self.anchor_mean_std
@@ -384,7 +374,8 @@ def shift(shape, stride, anchors, y_range = None):
     # 776.  792.  808.  824.  840.  856.  872.  888.  904.  920.  936.  952.
     # 968.  984. 1000. 1016. 1032. 1048. 1064. 1080. 1096. 1112. 1128. 1144.
     # 1160. 1176. 1192. 1208. 1224. 1240. 1256. 1272.]
-    print(f"[anchor.py] shift_y = {shift_y}") # [8 24 40 56 72 88 104 120 136. 152. 168. 184. 200 216 232. 248. 264. 280.]
+    
+    # print(f"[anchor.py] shift_y = {shift_y}") # [8 24 40 56 72 88 104 120 136. 152. 168. 184. 200 216 232. 248. 264. 280.]
 
     shift_x, shift_y = np.meshgrid(shift_x, shift_y)
 
