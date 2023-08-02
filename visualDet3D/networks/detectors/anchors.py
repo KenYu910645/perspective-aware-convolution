@@ -1,4 +1,4 @@
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
@@ -18,36 +18,13 @@ def load_from_pkl_or_npy(file_path):
         raise NotImplementedError
 
 class Anchors(nn.Module):
-
-    # def __init__(self, preprocessed_path:str,
-    #                    pyramid_levels:List[int], 
-    #                    strides:List[float], 
-    #                    sizes:List[float], 
-    #                    ratios:List[float], 
-    #                    scales:List[float],
-    #                    readConfigFile:int=1, 
-    #                    obj_types:List[str]=[],
-    #                    filter_y_threshold_min_max:Optional[Tuple[float, float]]=(-0.5, 1.8), 
-    #                    filter_x_threshold:Optional[float]=40.0,
-    #                    anchor_prior_channel=6,
-    #                    is_das:bool=False,
-    #                    external_anchor_path:str="",
-    #                    anchor_prior:bool=True,):
     def __init__(self, cfg, is_training_process = True):
         super(Anchors, self).__init__()
-
-        # cfg.detector.anchors = edict(
-        #     obj_types = cfg.obj_types,
-        #     pyramid_levels = [4],
-        #     strides = [2 ** 4],
-        #     sizes = [24],
-        #     ratios = np.array([0.5, 1]),
-        #     scales = np.array([2 ** (i / 4.0) for i in range(16)]),
-        # )
 
         self.cfg = cfg
         self.anchor_cfg = cfg.detector.anchors
         self.is_training_process = is_training_process
+        print(f"[anchors.py] self.is_training_process = {self.is_training_process}") # True during training, False during preprocessing
 
         self.pyramid_levels = cfg.detector.anchors.pyramid_levels
         self.strides        = cfg.detector.anchors.strides
@@ -58,14 +35,11 @@ class Anchors(nn.Module):
         self.P2 = None
         
         self.scale_step = 1 / (np.log2(self.scales[1]) - np.log2(self.scales[0]))
-        print(f"[anchors.py] self.is_training_process = {self.is_training_process}") # True during training, False during preprocessing
         
         # self.external_anchor_path = external_anchor_path
         # self.anchor_prior = anchor_prior
         # print(f"[anchors.py] external_anchor_path = {self.external_anchor_path}")
         # print(f"[anchors.py] self.anchor_prior = {anchor_prior}")
-
-        # self.is_das = is_das
 
         self.anchors_mean_original = np.zeros([len(cfg.obj_types), len(self.scales), len(self.ratios), 6])
         self.anchors_std_original  = np.zeros([len(cfg.obj_types), len(self.scales), len(self.ratios), 6])
@@ -167,7 +141,6 @@ class Anchors(nn.Module):
                 print(f"[anchors.py] anchors = {anchors.shape}") # (32, 4) From smallest to largest anchor
                 print(f"[anchors.py] self.strides[idx] = {self.strides[idx]}")
                 if self.cfg.detector.head.is_das:
-                    print(f"[anchors.py] self.strides[idx] = {self.strides[idx]}")
                     if   p == 3: y_range = (6, 14) # (4, 14)
                     elif p == 4: y_range = (7,  9) # (7, 12)
                     elif p == 5: y_range = (4,  8) # (6, 9 )
@@ -184,7 +157,6 @@ class Anchors(nn.Module):
                 ### Get mean and std of anchors from preprocessing files ###
                 ############################################################
                 if self.anchor_cfg.anchor_prior: # Use pre-processed mean and std file
-                    # TODO, currently only support single object
                     print(f"Using pre-processed mean and std")
                     print(f"self.anchors_avg_original = {self.anchors_avg_original.shape}") # (1, 16, 2, 6)
                     if len(self.anchors_avg_original.shape) == 4: # The format is # (1, 16, 2, 6)
@@ -243,9 +215,6 @@ class Anchors(nn.Module):
                     return self.anchors, self.useful_mask
             # print(f"Encounter different P2")
             self.P2 = P2
-            fy = P2[:, 1:2, 1:2] #[B,1, 1]
-            cy = P2[:, 1:2, 2:3] #[B,1, 1]
-            cx = P2[:, 0:1, 2:3] #[B,1, 1]
             N = self.anchors.shape[1]
 
             # Enable all anchors
@@ -255,8 +224,10 @@ class Anchors(nn.Module):
             # print(f"[anchor.py] self.useful_mask = {torch.count_nonzero(self.useful_mask[0])}") # 9684
             
             if self.is_training_process:
+                # Training 
                 return self.anchors, self.useful_mask, self.anchor_mean_std
-            else:# Preprocessing
+            else:
+                # Preprocessing
                 return self.anchors, self.useful_mask
         return self.anchors
 

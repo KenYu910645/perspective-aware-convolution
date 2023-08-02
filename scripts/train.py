@@ -12,13 +12,15 @@ matplotlib.use('agg')
 from torch.utils.tensorboard import SummaryWriter
 
 from _path_init import *
-from visualDet3D.networks.utils.registry import DETECTOR_DICT, DATASET_DICT, PIPELINE_DICT
+from visualDet3D.networks.utils.registry import PIPELINE_DICT
+from visualDet3D.data.kitti.dataset.mono_dataset import KittiMonoDataset
 from visualDet3D.networks.utils.utils import get_num_parameters
-import visualDet3D.data.kitti.dataset
+
 from visualDet3D.utils.timer import Timer
 from visualDet3D.utils.utils import LossLogger, cfg_from_file
 from visualDet3D.networks.optimizers import optimizers, schedulers
 from visualDet3D.data.dataloader import build_dataloader
+from visualDet3D.networks.detectors.yolo3d_detector import Yolo3D
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -99,8 +101,9 @@ def main(cfg_path="config/config.py", experiment_name="default", world_size=1, l
         torch.distributed.init_process_group(backend='nccl', init_method='env://')
     
     ## define datasets and dataloader.
-    dataset_train = DATASET_DICT[cfg.data.train_dataset](cfg)
-    dataset_val   = DATASET_DICT[cfg.data.val_dataset]  (cfg, "validation")
+    dataset_train = KittiMonoDataset(cfg, "training") # DATASET_DICT[cfg.data.train_dataset](cfg, "training")
+    dataset_val   = KittiMonoDataset(cfg, "validation") # DATASET_DICT[cfg.data.val_dataset]  (cfg, "validation")
+
     # for i in dataset_train:
     #     print(i.keys()) # ['calib', 'image', 'label', 'bbox2d', 'bbox3d', 'original_shape', 'original_P', 'loc_3d_roy']
     print('[train.py] Number of training images: {}'.format(len(dataset_train)))
@@ -117,8 +120,7 @@ def main(cfg_path="config/config.py", experiment_name="default", world_size=1, l
     cfg.detector.loss.iou_type = getattr(cfg.detector.loss, 'iou_type', 'baseline')
     
     # Create the model
-    # detector = DETECTOR_DICT[cfg.detector.name](cfg.detector)
-    detector = DETECTOR_DICT[cfg.detector.name](cfg)
+    detector = Yolo3D(cfg) # DETECTOR_DICT[cfg.detector.name](cfg)
 
     # Load old model if needed
     old_checkpoint = getattr(cfg.path, 'pretrained_checkpoint', None)

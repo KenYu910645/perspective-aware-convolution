@@ -44,10 +44,7 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
     frames = [None] * N
     print("start reading {} data".format(data_split))
     timer = Timer()
-
-    # anchor_prior         = getattr(cfg.detector.anchors, 'anchor_prior', True)
-    # external_anchor_path = getattr(cfg.detector.anchors, 'external_anchor_path', "")
-    # is_das               = getattr(cfg.detector.anchors, 'is_das', False)
+    
     external_anchor_path = cfg.detector.head.anchor.external_anchor_path
     anchor_prior         = cfg.detector.head.anchor.anchor_prior
     

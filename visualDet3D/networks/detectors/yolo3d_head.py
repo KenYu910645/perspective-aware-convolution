@@ -1,213 +1,103 @@
 import torch
 import torch.nn as nn
 from torchvision.ops import nms
-from easydict import EasyDict
 import numpy as np
-from visualDet3D.networks.heads.losses import CIoULoss, DIoULoss, SigmoidFocalLoss, ModifiedSmoothL1Loss, IoULoss
-from visualDet3D.networks.heads.anchors import Anchors
-from visualDet3D.networks.utils.utils import calc_iou, BackProjection
+from visualDet3D.networks.detectors.losses import CIoULoss, DIoULoss, SigmoidFocalLoss, ModifiedSmoothL1Loss, IoULoss
+from visualDet3D.networks.detectors.anchors import Anchors
+from visualDet3D.networks.utils.utils import calc_iou, BackProjection, ClipBoxes
 from visualDet3D.networks.lib.fast_utils.hill_climbing import post_opt
-from visualDet3D.networks.utils.utils import ClipBoxes
 from visualDet3D.networks.lib.blocks import AnchorFlatten
-from visualDet3D.networks.backbones.resnet import BasicBlock
-from visualDet3D.networks.lib.ops import ModulatedDeformConvPack
 from visualDet3D.networks.lib.look_ground import LookGround
 from visualDet3D.networks.lib.cbam import CBAM
 from visualDet3D.networks.lib.bam import BAM
 from visualDet3D.networks.lib.coordatten import CoordAtt
-from visualDet3D.networks.lib.pac import PerspectiveConv2d, PerspectiveConv2d_cubic
-# from visualDet3D.networks.lib.pac_legacy import PerspectiveConv2d
 from visualDet3D.networks.lib.dcn import DeformableConv2d
 from visualDet3D.networks.lib.rfb import BasicRFB
 from visualDet3D.networks.lib.aspp import ASPP
-from visualDet3D.networks.lib.pac_module import PAC_module, PAC_3D_module
-from visualDet3D.networks.lib.das import LocalConv2d, DepthAwareSample
+from visualDet3D.networks.lib.pac_module import PAC_module, PerspectiveConv2d
+from visualDet3D.networks.lib.das import DepthAwareSample
 
-class AnchorBasedDetection3DHead(nn.Module):
-    # def __init__(self, num_features_in:int=1024,
-    #                    num_classes:int=3,
-    #                    num_regression_loss_terms=12,
-    #                    preprocessed_path:str='',
-    #                    anchors_cfg:EasyDict=EasyDict(),
-    #                    layer_cfg:EasyDict=EasyDict(),
-    #                    loss_cfg:EasyDict=EasyDict(),
-    #                    test_cfg:EasyDict=EasyDict(),
-    #                    read_precompute_anchor:bool=True,
-    #                    data_cfg:EasyDict=EasyDict(),
-    #                    is_fpn_debug:bool=False,
-    #                    use_channel_attention:bool=False,
-    #                    use_spatial_attention:bool=False,
-    #                    is_seperate_cz:bool=False,
-    #                    use_bam:bool=False,
-    #                    is_seperate_fpn_level_head:bool=False,
-    #                    use_coordinate_attetion:bool=False,
-    #                    is_fc_depth:bool=False,
-    #                    cz_reg_dim:int=1024,
-    #                    reg_2d_dim:int=256,
-    #                    num_dcnv2:int=0,
-    #                    num_pac_layer:int=0,
-    #                    pac_mode:str="",
-    #                    offset_3d:float=0.4,
-    #                    offset_2d:tuple=(32, 32),
-    #                    pad_mode:str="constant",
-    #                    adpative_P2:bool=False,
-    #                    cz_pred_mode:str="look_ground",
-    #                    is_noam_loss:bool=False,
-    #                    is_pac_bn_relu:bool=False,
-    #                    is_seperate_noam:bool=True,
-    #                    is_rfb:bool=False,
-    #                    is_aspp:bool=False,
-    #                    is_cubic_pac:bool=False,
-    #                    is_pac_module:bool=False,
-    #                    is_das:bool=False,
-    #                    is_pac_module_3D:bool=False,
-    #                    lock_theta_ortho:bool=False,):
+class Yolo3D_Head(nn.Module):
     def __init__(self, cfg):
-        super(AnchorBasedDetection3DHead, self).__init__()
-        self.cfg = cfg
-
-        # self.anchors = Anchors(preprocessed_path=cfg.path.preprocessed_path, readConfigFile=read_precompute_anchor, **anchors_cfg)
-        self.anchors = Anchors(cfg, is_training_process = True)
-        self.num_classes = cfg.detector.head.num_classes
+        super(Yolo3D_Head, self).__init__()
         
-        self.decode_before_loss = getattr(cfg.detector.loss, 'decode_before_loss', False)
-        self.iou_type = getattr(cfg.detector.loss, 'iou_type', "baseline")
+        self.cfg = cfg
+        self.num_classes = cfg.detector.head.num_classes
+
+        self.anchors = Anchors(cfg, is_training_process = True)
 
         self.build_loss()
+
+        self.init_layers(cfg.detector.head)
 
         self.backprojector = BackProjection()
 
         self.clipper = ClipBoxes()
-
-        # print(f"self.use_channel_attention = {self.use_channel_attention}")
-        # print(f"self.use_spatial_attention = {self.use_spatial_attention}")
-        # print(f"self.use_bam = {self.use_bam}")
-        # print(f"use_coordinate_attetion = {self.use_coordinate_attetion}")
-
-        # print(f"self.is_seperate_cz = {self.is_seperate_cz}")
-        # print(f"cz_reg_dim = {self.cz_reg_dim}")
-        # print(f"self.cz_pred_mode=  {self.cz_pred_mode}")
         
-        # print(f"self.num_pac_layer=  {self.num_pac_layer}")
-        # print(f"self.pac_mode=  {self.pac_mode}")
-        # print(f"adpative_P2 = {self.adpative_P2}")
-        # print(f"self.offset_2d = {self.offset_2d}")
-        # print(f"self.offset_3d=  {self.offset_3d}")
-        # print(f"self.pad_mode=  {self.pad_mode}")
-        # print(f"is_pac_bn_relu = {self.is_pac_bn_relu}")
-        # print(f"is_pac_module = {self.is_pac_module}")
-        # print(f"is_pac_module_3D = {self.is_pac_module_3D}")
-        # print(f"lock_theta_ortho = {self.lock_theta_ortho}")
-        # print(f"is_cubic_pac = {self.is_cubic_pac}")
-        
-        # print(f"is_rfb = {self.is_rfb}")
-        # print(f"is_aspp = {self.is_aspp}")
-        # print(f"num_dcnv2 = {self.num_dcnv2}")
-        
-        # print(f"is_das = {self.is_das}")
-        
-        self.init_layers(cfg.detector.head)
-
         # For Anchor staticical
         self.n_miss_gt = 0
         self.n_cover_gt = 0
         self.n_assign_anchor = 0
 
-    # def init_layers(self, num_features_in,
-    #                       num_anchors:int,
-    #                       num_cls_output:int,
-    #                       num_reg_output:int,
-    #                       cls_feature_size:int=1024,
-    #                       reg_feature_size:int=1024,
-    #                       **kwargs):
     def init_layers(self, head_cfg):
+        
+        a_module_cfg = self.cfg.detector.attention_module
+        d_module_cfg = self.cfg.detector.dilation_module
+        depth_cfg    = self.cfg.detector.depth_branch 
+
         ####################################
         ### Attention Module Declaration ###
         ####################################
-        if head_cfg.use_spatial_attention or head_cfg.use_channel_attention:
+        if a_module_cfg.use_spatial_attention or a_module_cfg.use_channel_attention:
             self.cbam_layer = CBAM(head_cfg.num_features_in, 
                                     reduction_ratio = 16, 
                                     pool_types = ['avg', 'max'], 
                                     use_spatial = self.use_spatial_attention, 
                                     use_channel = self.use_channel_attention)
-            print(self.cbam_layer)
+            print(f"CBAM attention module = {self.cbam_layer}")
         
-        if head_cfg.use_bam:
+        if a_module_cfg.use_bam:
             self.bam_layer = BAM(head_cfg.num_features_in)
-            print(self.bam_layer)
+            print(f"BAM attention module = {self.bam_layer}")
         
-        if head_cfg.use_coordinate_attetion:
+        if a_module_cfg.use_coordinate_attetion:
             self.coord_atten_layer = CoordAtt(head_cfg.num_features_in, head_cfg.num_features_in)
-            print(self.coord_atten_layer)
+            print(f"Coordinate attention module = {self.coord_atten_layer}")
         
         ###################################
         ### Dilation Module Declaration ###
         ###################################
-        if head_cfg.num_dcnv2 != 0:
+        if d_module_cfg.num_dcnv2 != 0:
             self.dcn_layers = nn.ModuleList([
                 DeformableConv2d(1024, 1024, kernel_size=3, stride=1, padding=1)
                 for _ in range(head_cfg.num_dcnv2)
             ])
 
-        if head_cfg.num_pac_layer != 0:
-            if head_cfg.is_pac_bn_relu:
-                self.pac_layers = []
-                for _ in range(head_cfg.num_pac_layer):
-                    self.pac_layers.append( nn.Sequential(
-                        PerspectiveConv2d(head_cfg.num_features_in,
-                                            head_cfg.num_features_in,
-                                            head_cfg.pac_mode,
-                                            offset_2d = head_cfg.offset_2d,
-                                            offset_3d = head_cfg.offset_3d,
-                                            input_shape = (18, 80),
-                                            pad_mode = head_cfg.pad_mode,
-                                            adpative_P2 = head_cfg.adpative_P2,
-                                            lock_theta_ortho = head_cfg.lock_theta_ortho,),
-                        nn.BatchNorm2d(head_cfg.num_features_in),
-                        nn.ReLU(),) )
-                self.pac_layers = [n.to("cuda") for n in head_cfg.pac_layers] # TODO, tmp
-
-            else:
-                self.pac_layers = nn.ModuleList([
+        if d_module_cfg.num_pac_layer != 0:
+            self.pac_layers = []
+            for _ in range(d_module_cfg.num_pac_layer):
+                self.pac_layers.append( nn.Sequential(
                     PerspectiveConv2d(head_cfg.num_features_in,
-                                    head_cfg.num_features_in,
-                                    head_cfg.pac_mode,
-                                    offset_2d = head_cfg.offset_2d,
-                                    offset_3d = head_cfg.offset_3d,
-                                    input_shape = (18, 80),
-                                    pad_mode = head_cfg.pad_mode,
-                                    adpative_P2 = head_cfg.adpative_P2,
-                                    lock_theta_ortho = head_cfg.lock_theta_ortho,)
-                    for _ in range(head_cfg.num_pac_layer) ])
-                
+                                      head_cfg.num_features_in,
+                                      input_shape = (18, 80),
+                                      d_rate_xy = d_module_cfg.d_rate_xy,
+                                      lock_theta_ortho=d_module_cfg.lock_theta_ortho),
+                    nn.BatchNorm2d(head_cfg.num_features_in),
+                    nn.ReLU(),) )
+            self.pac_layers = [n.to("cuda") for n in d_module_cfg.pac_layers] # TODO, tmp
             print(f"pac_layers = {self.pac_layers}")
         
-        if head_cfg.is_pac_module:
-            self.pac_layers = PAC_module(head_cfg.num_features_in, head_cfg.num_features_in, "2d_offset")
-            print(f"pac_layers = {self.pac_layers}")
-        
-        if head_cfg.is_pac_module_3D:
-            self.pac_layers = PAC_3D_module(head_cfg.num_features_in, head_cfg.num_features_in, "2d_offset")
-            print(f"pac_layers = {self.pac_layers}")
+        if d_module_cfg.is_pac_module:
+            self.pac_layers = PAC_module(head_cfg.num_features_in, head_cfg.num_features_in, lock_theta_ortho=d_module_cfg.lock_theta_ortho)
+            print(f"PAC_module = {self.pac_layers}")
             
-        if head_cfg.is_rfb:
-            self.RFB_layer = BasicRFB(1024, 1024, scale = 1.0, visual=2)
-        
-        if head_cfg.is_aspp:
+        if d_module_cfg.is_rfb:
+            self.rfb_layer = BasicRFB(1024, 1024, scale = 1.0, visual=2)
+            print(f"Using RFB Moduel = {self.rfb_layer}")
+
+        if d_module_cfg.is_aspp:
             self.aspp_layer = ASPP(1024, 1024)
-        
-        if head_cfg.is_cubic_pac:
-            self.pac_cubic_layer =  nn.Sequential(PerspectiveConv2d_cubic(head_cfg.num_features_in,
-                                                                          head_cfg.num_features_in,
-                                                                          head_cfg.pac_mode,
-                                                                          offset_2d = head_cfg.offset_2d,
-                                                                          offset_3d = head_cfg.offset_3d,
-                                                                          input_shape = (18, 80),
-                                                                          pad_mode = head_cfg.pad_mode,
-                                                                          adpative_P2 = head_cfg.adpative_P2,
-                                                                          lock_theta_ortho = head_cfg.lock_theta_ortho,),
-                                                                          nn.BatchNorm2d(head_cfg.num_features_in),
-                                                                          nn.ReLU(),)
+            print(f"Using ASPP Moduel = {self.aspp_layer}")
         
         #########################################
         ### Classification Branch Declaration ###
@@ -270,8 +160,8 @@ class AnchorBasedDetection3DHead(nn.Module):
         ################################
         ### Depth Branch Declaration ###
         ################################
-        if head_cfg.is_seperate_cz:
-            if head_cfg.cz_pred_mode == "fc":
+        if depth_cfg.is_seperate_cz:
+            if depth_cfg.cz_pred_mode == "fc":
                 self.cz_feature_extraction = nn.Sequential( # Reduce dimension from 1024 to 256
                     nn.Conv2d(head_cfg.num_features_in, 256, kernel_size = 1),
                 )
@@ -280,64 +170,61 @@ class AnchorBasedDetection3DHead(nn.Module):
                     nn.ReLU(),
                     nn.Linear(1440 , 1440),
                 )
-            elif head_cfg.cz_pred_mode == "look_ground":
+            elif depth_cfg.cz_pred_mode == "look_ground":
                 self.cz_feature_extraction = nn.Sequential(
                     LookGround(head_cfg.num_features_in),
-                    nn.Conv2d(head_cfg.num_features_in, head_cfg.cz_reg_dim, kernel_size=3, padding=1),
+                    nn.Conv2d(head_cfg.num_features_in, depth_cfg.cz_reg_dim, kernel_size=3, padding=1),
                     nn.BatchNorm2d(head_cfg.cz_reg_dim),
                     nn.ReLU(),
-                    nn.Conv2d(head_cfg.cz_reg_dim, head_cfg.cz_reg_dim, kernel_size=3, padding=1),
-                    nn.BatchNorm2d(head_cfg.cz_reg_dim),
+                    nn.Conv2d(depth_cfg.cz_reg_dim, depth_cfg.cz_reg_dim, kernel_size=3, padding=1),
+                    nn.BatchNorm2d(depth_cfg.cz_reg_dim),
                     nn.ReLU(inplace=True),
-                    nn.Conv2d(head_cfg.cz_reg_dim, head_cfg.num_anchors*1, kernel_size=3, padding=1),
+                    nn.Conv2d(depth_cfg.cz_reg_dim, head_cfg.num_anchors*1, kernel_size=3, padding=1),
                     AnchorFlatten((1)),
                 )
                 self.cz_feature_extraction[-2].weight.data.fill_(0)
                 self.cz_feature_extraction[-2].bias.data.fill_(0)
             
-            elif head_cfg.cz_pred_mode == "oridinal_loss": # TODO
+            elif depth_cfg.cz_pred_mode == "oridinal_loss": # TODO
                 raise NotImplementedError
     
     def forward(self, inputs):
         
-        # print(f"[detection_3d_head.py] inputs['features'] = {inputs['features'].shape}")
-        head_cfg = self.cfg.detector.head
-        
+        a_module_cfg = self.cfg.detector.attention_module
+        d_module_cfg = self.cfg.detector.dilation_module
+        depth_cfg    = self.cfg.detector.depth_branch 
+
         ########################
         ### Attention Module ###
         ########################
-        if head_cfg.use_spatial_attention or head_cfg.use_channel_attention:
+        if a_module_cfg.use_spatial_attention or a_module_cfg.use_channel_attention:
             inputs['features'] = self.cbam_layer(inputs['features']) # [1024, 18, 80]
         
-        if head_cfg.use_bam:
+        if a_module_cfg.use_bam:
             inputs['features'] = self.bam_layer(inputs['features'])
         
-        if head_cfg.use_coordinate_attetion:
+        if a_module_cfg.use_coordinate_attetion:
             inputs['features'] = self.coord_atten_layer(inputs['features'])
         
         ########################
         ### Dilation  Module ###
         ########################
-        if head_cfg.num_dcnv2 != 0:
-            for i in range(self.num_dcnv2):
+        if d_module_cfg.num_dcnv2 != 0:
+            for i in range(d_module_cfg.num_dcnv2):
                 inputs['features'] = self.dcn_layers[i](inputs['features'])
         
-        if head_cfg.num_pac_layer != 0:
-            for i in range(self.num_pac_layer):
+        if d_module_cfg.num_pac_layer != 0:
+            for i in range(d_module_cfg.num_pac_layer):
                 inputs['features'] = self.pac_layers[i](inputs)
         
-        if head_cfg.is_pac_module or head_cfg.is_pac_module_3D:
+        if d_module_cfg.is_pac_module:
             inputs['features'] = self.pac_layers(inputs)
-    
-        if head_cfg.is_rfb:
-            inputs['features'] = self.RFB_layer(inputs['features'])
+
+        if d_module_cfg.is_rfb:
+            inputs['features'] = self.rfb_layer(inputs['features'])
         
-        if head_cfg.is_aspp:
+        if d_module_cfg.is_aspp:
             inputs['features'] = self.aspp_layer(inputs['features'])
-        
-        if head_cfg.is_cubic_pac:
-            inputs['features'] = self.pac_cubic_layer(inputs)
-            
         
         cls_preds = self.cls_feature_extraction(inputs['features'])
         reg_preds = self.reg_feature_extraction(inputs)
@@ -345,8 +232,8 @@ class AnchorBasedDetection3DHead(nn.Module):
         ################################
         ### Depth Prediction  Module ###
         ################################
-        if head_cfg.is_seperate_cz:
-            if head_cfg.cz_pred_mode == "fc":
+        if depth_cfg.is_seperate_cz:
+            if depth_cfg.cz_pred_mode == "fc":
                 dep_preds = self.cz_feature_extraction(inputs['features'])
                 dep_preds = dep_preds.permute(0, 2, 3, 1)
                 dep_preds = dep_preds.contiguous().view(dep_preds.shape[0], -1) # torch.Size([8, 368640])
@@ -354,10 +241,10 @@ class AnchorBasedDetection3DHead(nn.Module):
                 dep_preds = dep_preds.view(dep_preds.shape[0], -1, 18, 80) # torch.Size([8, 1, 18, 80])
                 dep_preds = dep_preds.repeat(1, 32, 1, 1) # torch.Size([8, 32, 18, 80])
             
-            elif head_cfg.cz_pred_mode == "look_ground":
+            elif depth_cfg.cz_pred_mode == "look_ground":
                 dep_preds = self.cz_feature_extraction(inputs)
             
-            elif head_cfg.cz_pred_mode == "oridinal_loss":
+            elif depth_cfg.cz_pred_mode == "oridinal_loss":
                 raise NotImplementedError
         else:
             dep_preds = None
@@ -366,10 +253,9 @@ class AnchorBasedDetection3DHead(nn.Module):
                 "reg_preds" : reg_preds,
                 "dep_preds" : dep_preds,}
 
-    def build_loss(self): # , focal_loss_gamma=0.0, balance_weight=[0], L1_regression_alpha=9, **kwargs):
+    def build_loss(self):
         loss_cfg = self.cfg.detector.loss
         
-        # self.focal_loss_gamma = focal_loss_gamma
         self.register_buffer("balance_weights", torch.tensor(loss_cfg.balance_weight, dtype = torch.float32))
         self.focal_loss = SigmoidFocalLoss(gamma = loss_cfg.focal_loss_gamma, balance_weights = self.balance_weights)
         self.smooth_L1_loss = ModifiedSmoothL1Loss(loss_cfg.L1_regression_alpha)
@@ -435,7 +321,7 @@ class AnchorBasedDetection3DHead(nn.Module):
         # max for anchor
         max_overlaps, argmax_overlaps = IoU.max(dim=1) # num_anchors
 
-        unique, counts = np.unique(argmax_overlaps.cpu().numpy(), return_counts=True)
+        # unique, counts = np.unique(argmax_overlaps.cpu().numpy(), return_counts=True)
         # print(dict(zip(unique, counts))) # {0: 2555, 1: 529, 2: 552, 3: 224}
         # print(max_overlaps[ argmax_overlaps == 1 ]  )
         # print(f"argmax_overlaps = {argmax_overlaps.shape}") # [3860]
@@ -686,12 +572,7 @@ class AnchorBasedDetection3DHead(nn.Module):
         return scores, bboxes, labels
 
     def get_anchor(self, img_batch, P2):
-        is_filtering = getattr(self.loss_cfg, 'filter_anchor', True)
-        if not self.training:
-            is_filtering = getattr(self.test_cfg, 'filter_anchor', is_filtering)
-        # print(f"[detection_3d_head.py] is_filtering = {is_filtering}")
-        
-        anchors, useful_mask, anchor_mean_std = self.anchors(img_batch, P2, is_filtering=is_filtering)
+        anchors, useful_mask, anchor_mean_std = self.anchors(img_batch, P2)
         return_dict=dict(
             anchors=anchors, #[1, N, 4]
             mask=useful_mask, #[B, N]
@@ -746,19 +627,12 @@ class AnchorBasedDetection3DHead(nn.Module):
         dep_preds = preds['dep_preds']
         
         assert cls_preds.shape[0] == 1 # batch == 1
-        
-        # Parameters
-        score_thr = getattr(test_cfg, 'score_thr', 0.5) # score_thr=0.75 in config.py
-        # cls_agnostic: True -> directly NMS; False -> NMS with offsets different categories will not collide
-        cls_agnostic = getattr(test_cfg, 'cls_agnositc', True) # cls_agnostic = True 
-        nms_iou_thr  = getattr(test_cfg, 'nms_iou_thr', 0.5) # nms_iou_thr=0.5
-        is_post_opt = getattr(test_cfg, 'post_optimization', False) # post_optimization=True
 
         cls_preds= cls_preds.sigmoid()
         cls_pred = cls_preds[0][..., 0:self.num_classes]
         hdg_pred = cls_preds[0][..., self.num_classes:self.num_classes+1]
         reg_pred = reg_preds[0]
-        if self.is_seperate_cz: dep_preds = dep_preds[0]
+        if self.cfg.detector.depth_branch.is_seperate_cz: dep_preds = dep_preds[0]
         
         ank_2dbbox = anchors['anchors'][0] #[N, 4]
         ank_zscwhl = anchors['anchor_mean_std_3d'] #[N, K, 2]
@@ -769,11 +643,11 @@ class AnchorBasedDetection3DHead(nn.Module):
         cls_pred   = cls_pred  [useful_mask]
         hdg_pred   = hdg_pred  [useful_mask]
         reg_pred   = reg_pred  [useful_mask]
-        if self.is_seperate_cz: dep_preds = dep_preds[useful_mask]
+        if self.cfg.detector.depth_branch.is_seperate_cz: dep_preds = dep_preds[useful_mask]
 
         # Find highest score in all classes
         max_score, label = cls_pred.max(dim=-1) 
-        high_score_mask = (max_score > score_thr)
+        high_score_mask = (max_score > test_cfg.score_thr)
         #
         ank_2dbbox = ank_2dbbox[high_score_mask, :]
         ank_zscwhl = ank_zscwhl[high_score_mask, :]
@@ -782,7 +656,7 @@ class AnchorBasedDetection3DHead(nn.Module):
         reg_pred   = reg_pred  [high_score_mask, :] # [n_det, 12/20]
         max_score  = max_score [high_score_mask]
         label      = label     [high_score_mask]
-        if self.is_seperate_cz: dep_preds = dep_preds[high_score_mask]
+        if self.cfg.detector.depth_branch.is_seperate_cz: dep_preds = dep_preds[high_score_mask]
         #
         bboxes, mask = self._decode(ank_2dbbox, reg_pred, ank_zscwhl, label, hdg_pred, cz_deltas=dep_preds)
         
@@ -798,12 +672,12 @@ class AnchorBasedDetection3DHead(nn.Module):
         ### Non-Maxiumum Supression ###
         ###############################
         # print(f"bboxes before nms = {bboxes.shape}") # [184, 11]
-        if cls_agnostic:
-            keep_inds = nms(bboxes[:, :4], max_score, nms_iou_thr)
+        if test_cfg.cls_agnostic:
+            keep_inds = nms(bboxes[:, :4], max_score, test_cfg.nms_iou_thr)
         else:
             max_coordinate = bboxes.max()
             nms_bbox = bboxes[:, :4] + label.float().unsqueeze() * (max_coordinate)
-            keep_inds = nms(nms_bbox, max_score, nms_iou_thr)
+            keep_inds = nms(nms_bbox, max_score, test_cfg.nms_iou_thr)
 
         bboxes      = bboxes   [keep_inds]
         max_score   = max_score[keep_inds]
@@ -813,7 +687,7 @@ class AnchorBasedDetection3DHead(nn.Module):
         ####################
         ### Post Process ###
         ####################
-        if is_post_opt:
+        if test_cfg.post_optimization:
             max_score, bboxes, label = self._post_process(max_score, bboxes, label, P2s)
         # print(bboxes.shape) # [n_det, 11] # [x1, y1, x2, y2, cx, cy, cz, w, h, l, alpha]
         
@@ -870,14 +744,14 @@ class AnchorBasedDetection3DHead(nn.Module):
             
             if len(anno_j) == 0: # If this image doesn't contain any ground true, just skip it
                 cls_loss.append(torch.tensor(0).cuda().float())
-                reg_loss.append(reg_preds.new_zeros(self.cfg.detector.num_regression_loss_terms))
+                reg_loss.append(reg_preds.new_zeros(self.cfg.detector.head.num_regression_loss_terms))
                 iou_loss.append(reg_preds.new_zeros(1)[0])
                 dep_loss.append(reg_preds.new_zeros(1))
                 n_pos_list.append(0)
                 continue
             
             # This is like retinanet's and YOLO's MaxIouAssignerm 
-            assign_dict = self._assign(ank_2dbbox_j, anno_j, **self.loss_cfg) # doesn't involve prediction
+            assign_dict = self._assign(ank_2dbbox_j, anno_j, **self.cfg.detector.loss) # doesn't involve prediction
             # print(f"assign_dict['num_gt'] = {assign_dict['num_gt']}") # 4 
             # print(f"assign_dict['assigned_gt_inds'] = {assign_dict['assigned_gt_inds'].shape}") # [7548]
             # print(assign_dict['assigned_gt_inds'].unique()) # -1,  0,  1, 0 means negative, 1 meams positive, 
@@ -946,12 +820,12 @@ class AnchorBasedDetection3DHead(nn.Module):
                     ######################
                     ### Get Depth Loss ###
                     ######################
-                    if self.cfg.detector.head.is_seperate_cz:
+                    if self.cfg.detector.depth_branch.is_seperate_cz:
                         dep_target = reg_target[:, 6:6+1] # [697, 1] 
-                        if self.cfg.detector.head.cz_pred_mode == "look_ground" or self.cfg.detector.head.cz_pred_mode == "fc":
+                        if self.cfg.detector.depth_branch.cz_pred_mode == "look_ground" or self.cfg.detector.depth_branch.cz_pred_mode == "fc":
                             dep_loss_j = self.smooth_L1_loss(dep_target, dep_pred[pos_inds]) # [141, 1]
                         
-                        elif self.cfg.detector.head.cz_pred_mode == "oridinal_loss":
+                        elif self.cfg.detector.depth_branch.cz_pred_mode == "oridinal_loss":
                             raise NotImplementedError
                         
                         # print(f"dep_loss_j.requires_grad = {dep_loss_j.requires_grad}")
@@ -982,7 +856,7 @@ class AnchorBasedDetection3DHead(nn.Module):
                     
                     n_pos_list.append(anno_j.shape[0])
             else:
-                reg_loss.append(reg_preds.new_zeros(self.cfg.detector.num_regression_loss_terms))
+                reg_loss.append(reg_preds.new_zeros(self.cfg.detector.head.num_regression_loss_terms))
                 n_pos_list.append(anno_j.shape[0])
                 if self.cfg.detector.loss.iou_type != "baseline": iou_loss.append(reg_preds.new_zeros(1)[0])
                 if dep_preds != None: dep_loss.append(reg_preds.new_zeros(1))
@@ -1019,13 +893,12 @@ class AnchorBasedDetection3DHead(nn.Module):
         log_dict['1/cls_loss']   = cls_loss
         log_dict['1/reg_loss']   = reg_loss
         log_dict['1/total_loss'] = cls_loss + reg_loss
-        if self.cfg.detector.head.is_seperate_cz:
+        if self.cfg.detector.depth_branch.is_seperate_cz:
             log_dict['1/dep_loss']    = dep_loss
             log_dict['1/total_loss'] += dep_loss
         if self.cfg.detector.loss.iou_type != "baseline":
             log_dict['1/iou_loss']    = iou_loss
             log_dict['1/total_loss'] += iou_loss
-            # print(reg_loss_weighted)
             reg_loss_weighted = torch.cat((reg_loss_weighted.new_zeros(4), reg_loss_weighted), dim=0)
         log_dict['2/dx']     = reg_loss_weighted[0]
         log_dict['2/dy']     = reg_loss_weighted[1]
@@ -1033,7 +906,7 @@ class AnchorBasedDetection3DHead(nn.Module):
         log_dict['2/dh']     = reg_loss_weighted[3]
         log_dict['2/cdx']    = reg_loss_weighted[4]
         log_dict['2/cdy']    = reg_loss_weighted[5]
-        if self.cfg.detector.head.is_seperate_cz:
+        if self.cfg.detector.depth_branch.is_seperate_cz:
             log_dict['2/cdz']    = dep_loss.detach().cpu().numpy()[0]
             log_dict['4/d_sin']  = reg_loss_weighted[6]
             log_dict['4/d_cos']  = reg_loss_weighted[7]

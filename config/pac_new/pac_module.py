@@ -16,16 +16,6 @@ cfg.trainer = edict(
     evaluate_func = "evaluate_kitti_obj",
 )
 
-# path
-# path = edict()
-# cfg.train_data_path = 'dataset/kitti/training'# "/data/kitti_obj/training" # used in visualDet3D/data/.../dataset
-# cfg.test_data_path = 'dataset/kitti/testing' # ""
-# path.visualDet3D_path = 'visualDet3D' # "/path/to/visualDet3D/visualDet3D" # The path should point to the inner subfolder
-# path.project_path = 'exp_output/pac_new' # "/path/to/visualDet3D/workdirs" # or other path for pickle files, checkpoints, tensorboard logging and output files.
-# path.pretrained_checkpoint = "/home/lab530/KenYu/visualDet3D/exp_output/mixup/kitti_mixup_1/Mono3D/checkpoint/GroundAwareYolo3D_latest.pth"
-# cfg.path = path
-
-# optimizer
 cfg.optimizer = edict(
     type_name = 'adam',
     keywords = edict(lr = 1e-4, weight_decay = 0,),
@@ -44,8 +34,8 @@ cfg.data = edict(
     train_dataset = "KittiMonoDataset",
     val_dataset   = "KittiMonoDataset",
     test_dataset  = "KittiMonoTestDataset",
-    train_split_file = os.path.join('visualDet3D/data/kitti/kitti_anchor_gen_split/train_all.txt'),
-    val_split_file   = os.path.join('visualDet3D/data/kitti/kitti_anchor_gen_split/val_all.txt'),
+    train_split_file = 'visualDet3D/data/kitti/kitti_anchor_gen_split/train_all.txt',
+    val_split_file   = 'visualDet3D/data/kitti/kitti_anchor_gen_split/val_all.txt',
     use_right_image = False,
     max_occlusion =  1000, # 2
     min_z         = -1000, # 3
@@ -80,7 +70,6 @@ cfg.data.test_augmentation = [
 
 ## networks
 cfg.detector = edict()
-# cfg.detector.obj_types = cfg.obj_types
 cfg.detector.name = 'Yolo3D'
 cfg.detector.backbone = edict(
     depth=101,
@@ -92,60 +81,30 @@ cfg.detector.backbone = edict(
     dilations=(1, 1, 1),
 )
 
-# head_loss = edict(
-#     fg_iou_threshold = 0.5,
-#     bg_iou_threshold = 0.4,
-#     L1_regression_alpha = 5 ** 2,
-#     focal_loss_gamma = 2.0,
-#     match_low_quality=False,
-#     balance_weight   = [20.0],
-#     regression_weight = [1, 1, 1, 1, 1, 1, 3, 1, 1, 0.5, 0.5, 0.5, 1], #[x, y, w, h, cx, cy, z, sin2a, cos2a, w, h, l]
-#     filter_anchor = False, # This prevent anchor filtering !!
-# )
-
-# head_test = edict(
-cfg.detector.test = edict(
-    score_thr=0.5, # TODO, 0.75
-    cls_agnostic = False,
-    nms_iou_thr=0.5, # TODO  , 0.5, bigger -> striker
-    post_optimization = False, # TODO, True
+cfg.detector.attention_module = edict(
+    use_channel_attention = False,
+    use_spatial_attention = False,
+    use_bam = False,
+    use_coordinate_attetion = False, 
 )
 
-# anchors = edict(
-#         {
-#             'obj_types': cfg.obj_types,
-#             'pyramid_levels':[4],
-#             'strides': [2 ** 4],
-#             'sizes' : [24],
-#             'ratios': np.array([0.5, 1]),
-#             'scales': np.array([2 ** (i / 4.0) for i in range(16)]),
-#         }
-#     )
+cfg.detector.dilation_module = edict(
+    is_aspp = False, 
+    is_rfb = False,
+    num_dcnv2 = 0,
+    is_pac_module = True,
+    num_pac_layer = 0,
+    d_rate_xy = (32, 32),
+    lock_theta_ortho = False,
+)
 
-# head_layer = edict(
-#     num_features_in=1024,
-#     num_anchors=32,
-#     num_cls_output=len(cfg.obj_types)+1,
-#     num_reg_output=12,
-#     cls_feature_size=512,
-#     reg_feature_size=1024,
-# )
-
-cfg.detector.head = edict(
-    num_regression_loss_terms=13,
-    num_classes     = len(cfg.obj_types),
-    num_features_in = 1024,
-    num_anchors     = 32,
-    num_cls_output  = len(cfg.obj_types)+1,
-    num_reg_output  = 12,
-    cls_feature_size=512,
-    reg_feature_size=1024,
-
-    is_pac_module   = True,
+cfg.detector.depth_branch = edict(
+    is_seperate_cz = False,
+    cz_reg_dim     = 1024,
+    cz_pred_mode   = "look_ground", # fc, 
 )
 
 cfg.detector.anchors = edict(
-    # obj_types = cfg.obj_types,
     pyramid_levels = [4],
     strides = [2 ** 4],
     sizes = [24],
@@ -155,24 +114,16 @@ cfg.detector.anchors = edict(
     external_anchor_path = "",
 )
 
-cfg.detector.attention_module = edict(
-    use_channel_attention = False,
-    use_spatial_attention = False,
-    use_bam = False,
-    use_coordinate_attetion = False, 
-)
-
-cfg.detector.pac = edict(
-    pac_mode          = 
-    num_pac_layer     = 
-    adpative_P2
-    offset_2d
-    offset_3d
-    is_pac_bn_relu
-    is_pac_module
-    is_pac_module_3D
-    lock_theta_ortho = 
-    is_cubic_pac
+cfg.detector.head = edict(
+    num_regression_loss_terms = 13,
+    num_classes      = len(cfg.obj_types),
+    num_features_in  = 1024,
+    num_anchors      = 32,
+    num_cls_output   = len(cfg.obj_types)+1,
+    num_reg_output   = 12,
+    cls_feature_size = 512,
+    reg_feature_size = 1024,
+    is_das           = False,
 )
 
 cfg.detector.loss = edict(
@@ -183,5 +134,12 @@ cfg.detector.loss = edict(
     match_low_quality=False,
     balance_weight   = [20.0],
     regression_weight = [1, 1, 1, 1, 1, 1, 3, 1, 1, 0.5, 0.5, 0.5, 1], #[x, y, w, h, cx, cy, z, sin2a, cos2a, w, h, l]
-    filter_anchor = False, # This prevent anchor filtering !!
+    iou_type = 'baseline', # iou diou ciou
+)
+
+cfg.detector.test = edict(
+    score_thr=0.5, # 0.75
+    cls_agnostic = False,
+    nms_iou_thr=0.5, # 0.5, bigger -> striker
+    post_optimization = False, # TODO, True
 )
