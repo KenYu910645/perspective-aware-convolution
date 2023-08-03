@@ -4,18 +4,16 @@ import pickle
 import cv2
 from copy import deepcopy
 import torch
-from easydict import EasyDict as edict
-from fire import Fire
 
-from _path_init import *
-from visualDet3D.networks.heads.anchors import Anchors, load_from_pkl_or_npy, generate_anchors
+# from _path_init import *
+from visualDet3D.networks.detectors.anchors import Anchors, load_from_pkl_or_npy, generate_anchors
 from visualDet3D.networks.utils.utils import calc_iou
-from visualDet3D.data.pipeline import build_augmentator
-from visualDet3D.data.kitti.kittidata import KittiData
+from visualDet3D.data.kittidata import KittiData
 from visualDet3D.utils.timer import Timer
-from visualDet3D.utils.utils import cfg_from_file, create_dir
+# from visualDet3D.utils.utils import cfg_from_file, create_dir
 from visualDet3D.utils.util_kitti import kitti_calib_file_parser
 from visualDet3D.data_augmentation.copy_paste import CopyPaste_Object
+from visualDet3D.data_augmentation.augmentation_composer import AugmentataionComposer
 
 # Reference: https://blog.csdn.net/xr627/article/details/127581608
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # For avoid tensorflow mumbling
@@ -45,8 +43,8 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
     print("start reading {} data".format(data_split))
     timer = Timer()
     
-    external_anchor_path = cfg.detector.head.anchor.external_anchor_path
-    anchor_prior         = cfg.detector.head.anchor.anchor_prior
+    external_anchor_path = cfg.detector.anchors.external_anchor_path
+    anchor_prior         = cfg.detector.anchors.anchor_prior
     
     total_objects        = [0 for _ in range(len(cfg.obj_types))]
     total_usable_objects = [0 for _ in range(len(cfg.obj_types))]
@@ -57,15 +55,17 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
         num_external_anchor = bbox2d.shape[0]
         # print(f"bbox2d = {bbox2d.shape}") # (32, 4)
     else:
-        bbox2d = generate_anchors(base_size=cfg.detector.anchors.sizes[0], 
-                                  ratios=cfg.detector.anchors.ratios, 
-                                  scales=cfg.detector.anchors.scales)
+        bbox2d = generate_anchors(base_size = cfg.detector.anchors.sizes[0], 
+                                  ratios    = cfg.detector.anchors.ratios, 
+                                  scales    = cfg.detector.anchors.scales)
     
     # Initalize mean_std things
     if anchor_prior:
-        # anchor_manager = Anchors(cfg.path.preprocessed_path, readConfigFile=False, **cfg.detector.anchors)
         anchor_manager = Anchors(cfg, is_training_process=False)
-        preprocess = build_augmentator(cfg.data.test_augmentation)
+        
+        # preprocess = build_augmentator(cfg.data.test_augmentation)
+        preprocess = AugmentataionComposer(cfg.data.test_augmentation)
+
         total_objects        = [0 for _ in range(len(cfg.obj_types))]
         total_usable_objects = [0 for _ in range(len(cfg.obj_types))]
         
@@ -289,52 +289,3 @@ def read_one_split(cfg, index_names, data_root_dir, output_dict, data_split = 't
     pkl_file = os.path.join(save_dir,'imdb.pkl')
     pickle.dump(frames, open(pkl_file, 'wb'))
     print("{} split finished precomputing".format(data_split))
-
-def main(cfg_path:str="config/project_name/exp_name.py"):
-    assert len(cfg_path.split('/')) == 3, "config_path must be in the format of config/project_name/exp_name.py" 
-    
-    cfg = cfg_from_file(cfg_path)
-    cfg.path = edict()
-    cfg.path.project_path      = os.path.join('exp_output', cfg_path.split('/')[1], cfg_path.split('/')[2])
-    cfg.path.log_path          = os.path.join(cfg.path.project_path, "log")
-    cfg.path.checkpoint_path   = os.path.join(cfg.path.project_path, "checkpoint")
-    cfg.path.preprocessed_path = os.path.join(cfg.path.project_path, "output")
-    cfg.path.train_imdb_path   = os.path.join(cfg.path.project_path, "output", "training")
-    cfg.path.train_disp_path   = os.path.join(cfg.path.project_path, "output", "training", "disp")
-    cfg.path.val_imdb_path     = os.path.join(cfg.path.project_path, "output", "validation")
-
-    create_dir(cfg.path.project_path)
-    create_dir(cfg.path.log_path)
-    create_dir(cfg.path.checkpoint_path)
-    create_dir(cfg.path.preprocessed_path)
-    create_dir(cfg.path.train_imdb_path)
-    create_dir(cfg.path.val_imdb_path)
-    create_dir(cfg.path.train_disp_path)
-
-    torch.cuda.set_device(cfg.trainer.gpu)
-    
-    is_copy_paste = any(d['type_name'] == 'CopyPaste' for d in cfg.data.train_augmentation)
-    
-    # data_root_dir = cfg.data.train_data_path # cfg.path.data_path # the base directory of training dataset
-    
-    # Load training datatset
-    output_dict = {"calib": True,
-                   "image": True,
-                   "label": True,
-                   "velodyne": False,
-                   "depth": is_copy_paste,}
-    train_names, val_names = process_train_val_file(cfg)
-    read_one_split(cfg, train_names, cfg.data.train_data_path, output_dict, 'training')
-    
-    # Load validation datatset
-    output_dict = {"calib": True,
-                   "image": False,
-                   "label": True,
-                   "velodyne": False,
-                   "depth": False,}
-    read_one_split(cfg, val_names, cfg.data.train_data_path, output_dict, 'validation')
-
-    print("Preprocessing finished")
-
-if __name__ == '__main__':
-    Fire(main)

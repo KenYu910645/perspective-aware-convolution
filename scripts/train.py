@@ -1,33 +1,33 @@
 import os
-from easydict import EasyDict
 from fire import Fire
+from easydict import EasyDict as edict
 import torch
 import pprint
+import numpy as np
 
 # Reference: https://blog.csdn.net/xr627/article/details/127581608
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # For avoid tensorflow mumbling
 import matplotlib # Disable GUI
 matplotlib.use('agg')
 
+import sys
+visualDet3D_path = os.path.dirname(sys.path[0])  #two folders upwards
+sys.path.insert(0, visualDet3D_path)
+
 from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader
 
-from _path_init import *
+
+from visualDet3D.data.mono_dataset import KittiMonoDataset
+from visualDet3D.data.sampler import TrainingSampler
+from visualDet3D.data.imdb_precompute_3d import read_one_split, process_train_val_file
 from visualDet3D.networks.utils.registry import PIPELINE_DICT
-from visualDet3D.data.kitti.dataset.mono_dataset import KittiMonoDataset
 from visualDet3D.networks.utils.utils import get_num_parameters
-
-from visualDet3D.utils.timer import Timer
-from visualDet3D.utils.utils import LossLogger, cfg_from_file
 from visualDet3D.networks.optimizers import optimizers, schedulers
-from visualDet3D.data.dataloader import build_dataloader
 from visualDet3D.networks.detectors.yolo3d_detector import Yolo3D
-
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-import numpy as np
+from visualDet3D.utils.timer import Timer
+from visualDet3D.utils.utils import LossLogger, cfg_from_file, create_dir
 from visualDet3D.utils.utils import compound_annotation
-from easydict import EasyDict as edict
 
 # For print out loss
 loss_avg_dict = {"1/reg_loss": 0,
@@ -44,7 +44,7 @@ loss_avg_dict = {"1/reg_loss": 0,
                  "4/dh": 0,
                  "4/dl": 0,}
 
-def main(cfg_path="config/config.py", experiment_name="default", world_size=1, local_rank=-1):
+def main(cfg_path="config/project_name/exp_name.py", experiment_name="default", world_size=1, local_rank=-1):
     """
     KeywordArgs:
         cfg_path (str): Path to config file.
@@ -53,8 +53,29 @@ def main(cfg_path="config/config.py", experiment_name="default", world_size=1, l
         local_rank: Rank of the process. Should not be manually assigned. 0-N for ranks in distributed training (only process 0 will print info and perform testing). -1 for single training. 
     """
 
-    # Get config
+    assert len(cfg_path.split('/')) == 3, "config_path must be in the format of config/project_name/exp_name.py" 
+    
     cfg = cfg_from_file(cfg_path)
+    cfg.path = edict()
+    cfg.path.project_path      = os.path.join('exp_output', cfg_path.split('/')[1], cfg_path.split('/')[2].split('.')[0])
+    cfg.path.log_path          = os.path.join(cfg.path.project_path, "log")
+    cfg.path.checkpoint_path   = os.path.join(cfg.path.project_path, "checkpoint")
+    cfg.path.preprocessed_path = os.path.join(cfg.path.project_path, "output")
+    cfg.path.train_imdb_path   = os.path.join(cfg.path.project_path, "output", "training")
+    cfg.path.train_disp_path   = os.path.join(cfg.path.project_path, "output", "training", "disp")
+    cfg.path.val_imdb_path     = os.path.join(cfg.path.project_path, "output", "validation")
+
+    create_dir(cfg.path.project_path)
+    create_dir(cfg.path.log_path)
+    create_dir(cfg.path.checkpoint_path)
+    create_dir(cfg.path.preprocessed_path)
+    create_dir(cfg.path.train_imdb_path)
+    create_dir(cfg.path.val_imdb_path)
+    create_dir(cfg.path.train_disp_path)
+
+    torch.cuda.set_device(cfg.trainer.gpu)
+    
+    is_copy_paste = any(d['type_name'] == 'CopyPaste' for d in cfg.data.train_augmentation)
     
     # Collect distributed(or not) information
     cfg.dist = edict()
@@ -63,18 +84,6 @@ def main(cfg_path="config/config.py", experiment_name="default", world_size=1, l
     is_distributed = local_rank >= 0 # local_rank < 0 -> single training
     is_logging     = local_rank <= 0 # only log and test with main process
     is_evaluating  = local_rank <= 0
-
-    
-
-    # TODO, this should be deleted after combine this file with preprocessing step
-    cfg.path = edict()
-    cfg.path.project_path      = os.path.join('exp_output', cfg_path.split('/')[1], cfg_path.split('/')[2])
-    cfg.path.log_path          = os.path.join(cfg.path.project_path, "log")
-    cfg.path.checkpoint_path   = os.path.join(cfg.path.project_path, "checkpoint")
-    cfg.path.preprocessed_path = os.path.join(cfg.path.project_path, "output")
-    cfg.path.train_imdb_path   = os.path.join(cfg.path.project_path, "output", "training")
-    cfg.path.train_disp_path   = os.path.join(cfg.path.project_path, "output", "training", "disp")
-    cfg.path.val_imdb_path     = os.path.join(cfg.path.project_path, "output", "validation")
 
     if is_logging: # writer exists only if not distributed and local rank is smaller
         # Clean up the dir if it exists before
@@ -99,7 +108,26 @@ def main(cfg_path="config/config.py", experiment_name="default", world_size=1, l
     torch.cuda.set_device(gpu)
     if is_distributed:
         torch.distributed.init_process_group(backend='nccl', init_method='env://')
+
+    # Load training datatset
+    output_dict = {"calib": True,
+                   "image": True,
+                   "label": True,
+                   "velodyne": False,
+                   "depth": is_copy_paste,}
+    train_names, val_names = process_train_val_file(cfg)
+    read_one_split(cfg, train_names, cfg.data.train_data_path, output_dict, 'training')
     
+    # Load validation datatset
+    output_dict = {"calib": True,
+                   "image": False,
+                   "label": True,
+                   "velodyne": False,
+                   "depth": False,}
+    read_one_split(cfg, val_names, cfg.data.train_data_path, output_dict, 'validation')
+
+    print("Preprocessing finished")
+
     ## define datasets and dataloader.
     dataset_train = KittiMonoDataset(cfg, "training") # DATASET_DICT[cfg.data.train_dataset](cfg, "training")
     dataset_val   = KittiMonoDataset(cfg, "validation") # DATASET_DICT[cfg.data.val_dataset]  (cfg, "validation")
@@ -108,26 +136,21 @@ def main(cfg_path="config/config.py", experiment_name="default", world_size=1, l
     #     print(i.keys()) # ['calib', 'image', 'label', 'bbox2d', 'bbox3d', 'original_shape', 'original_P', 'loc_3d_roy']
     print('[train.py] Number of training images: {}'.format(len(dataset_train)))
     print('[train.py] Number of validation images: {}'.format(len(dataset_val)))
-    dataloader_train = build_dataloader(dataset_train,
-                                        num_workers=cfg.data.num_workers,
-                                        batch_size=cfg.data.batch_size,
-                                        collate_fn=dataset_train.collate_fn,
-                                        local_rank=local_rank,
-                                        world_size=world_size,
-                                        sampler_cfg=getattr(cfg.data, 'sampler', dict()))
 
-    # Set default value for iou_type
-    cfg.detector.loss.iou_type = getattr(cfg.detector.loss, 'iou_type', 'baseline')
-    
+    dataloader_train = DataLoader(dataset_train, 
+                        num_workers = cfg.data.num_workers, 
+                        batch_size  = cfg.data.batch_size, 
+                        collate_fn  = dataset_train.collate_fn, 
+                        sampler = TrainingSampler(size=len(dataset_train), rank=local_rank, world_size=world_size,), 
+                        drop_last=True)
+
     # Create the model
-    detector = Yolo3D(cfg) # DETECTOR_DICT[cfg.detector.name](cfg)
+    detector = Yolo3D(cfg)
 
-    # Load old model if needed
-    old_checkpoint = getattr(cfg.path, 'pretrained_checkpoint', None)
-    
-    if old_checkpoint is not None:
-        print(f"[train.py] Use pretrained model at {old_checkpoint}")
-        checkpoint = torch.load(old_checkpoint, map_location='cpu')
+    # Load pretrain model
+    if cfg.ckpt_path != "":
+        print(f"[train.py] Use pretrained model at {cfg.ckpt_path}")
+        checkpoint = torch.load(cfg.ckpt_path, map_location='cpu')
         
         # Load partial of the pre-train model
         pretrained_dict = checkpoint # ['model_state_dict']
@@ -174,12 +197,6 @@ def main(cfg_path="config/config.py", experiment_name="default", world_size=1, l
 
     # define loss logger
     training_loss_logger = LossLogger(writer, 'train') if is_logging else None
-
-    # # training pipeline
-    # if 'training_func' in cfg.trainer:
-    #     training_dection = PIPELINE_DICT[cfg.trainer.training_func]
-    # else:
-    #     raise KeyError
 
     # Get evaluation pipeline # TODO remove eval pipeline
     if 'evaluate_func' in cfg.trainer:

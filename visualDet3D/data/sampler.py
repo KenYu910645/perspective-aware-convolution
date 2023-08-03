@@ -1,10 +1,7 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
 import itertools
 import torch
 from torch.utils.data.sampler import Sampler
-from visualDet3D.networks.utils.registry import SAMPLER_DICT
 
-@SAMPLER_DICT.register_module
 class TrainingSampler(Sampler):
     """
     In training, we only care about the "infinite stream" of training data.

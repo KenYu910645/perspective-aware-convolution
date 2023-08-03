@@ -1,9 +1,9 @@
 from easydict import EasyDict as edict
-import os 
 import numpy as np
 
 cfg = edict()
 cfg.obj_types = ['Car']
+cfg.ckpt_path = "" # path of checkpoint
 
 cfg.trainer = edict(
     gpu = 0,
@@ -34,8 +34,8 @@ cfg.data = edict(
     train_dataset = "KittiMonoDataset",
     val_dataset   = "KittiMonoDataset",
     test_dataset  = "KittiMonoTestDataset",
-    train_split_file = 'visualDet3D/data/kitti/kitti_anchor_gen_split/train_all.txt',
-    val_split_file   = 'visualDet3D/data/kitti/kitti_anchor_gen_split/val_all.txt',
+    train_split_file = 'visualDet3D/data/kitti_data_split/kitti_anchor_gen_split/train_all.txt',
+    val_split_file   = 'visualDet3D/data/kitti_data_split/kitti_anchor_gen_split/val_all.txt',
     use_right_image = False,
     max_occlusion =  1000, # 2
     min_z         = -1000, # 3
@@ -53,7 +53,7 @@ cfg.data = edict(
 )
 
 cfg.data.train_augmentation = [
-    edict(type_name='ConvertToFloat'),
+    edict(type_name='ConvertToFloat'    , keywords=edict()),
     edict(type_name='PhotometricDistort', keywords=edict(distort_prob=1.0, contrast_lower=0.5, contrast_upper=1.5, saturation_lower=0.5, saturation_upper=1.5, hue_delta=18.0, brightness_delta=32)),
     edict(type_name='CropTop'           , keywords=edict(crop_top_index=cfg.data.augmentation.crop_top)),
     edict(type_name='Resize'            , keywords=edict(size=cfg.data.augmentation.cropSize)),
@@ -62,10 +62,10 @@ cfg.data.train_augmentation = [
 ]
 
 cfg.data.test_augmentation = [
-    edict(type_name='ConvertToFloat'),
-    edict(type_name='CropTop', keywords=edict(crop_top_index=cfg.data.augmentation.crop_top)),
-    edict(type_name='Resize', keywords=edict(size=cfg.data.augmentation.cropSize)),
-    edict(type_name='Normalize', keywords=edict(mean=cfg.data.augmentation.rgb_mean, stds=cfg.data.augmentation.rgb_std))
+    edict(type_name='ConvertToFloat', keywords=edict()),
+    edict(type_name='CropTop'       , keywords=edict(crop_top_index=cfg.data.augmentation.crop_top)),
+    edict(type_name='Resize'        , keywords=edict(size=cfg.data.augmentation.cropSize)),
+    edict(type_name='Normalize'     , keywords=edict(mean=cfg.data.augmentation.rgb_mean, stds=cfg.data.augmentation.rgb_std))
 ]
 
 ## networks

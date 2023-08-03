@@ -9,24 +9,20 @@ during testing as they are in training.
 
 Optionally, most transforms should have an __init__ function as well, if needed.
 """
-
 import numpy as np
 from numpy import random
 import cv2
-import math
-import os
-import sys
-from easydict import EasyDict
-from typing import List
-from visualDet3D.networks.utils.utils import BBox3dProjector
-from visualDet3D.utils.utils import draw_3D_box, theta2alpha_3d
-from visualDet3D.networks.utils.registry import AUGMENTATION_DICT
-from visualDet3D.data.kitti.kittidata import KittiObj
-from .augmentation_builder import Compose, build_single_augmentator
 import random as random_pkg
 import pickle
 import copy
-from math import sqrt
+from math import sqrt, pi
+from easydict import EasyDict as edict
+
+from visualDet3D.networks.utils.utils import BBox3dProjector
+from visualDet3D.utils.utils import theta2alpha_3d
+from visualDet3D.networks.utils.registry import AUGMENTATION_DICT
+from visualDet3D.data.kittidata import KittiObj
+from .augmentation_composer import AugmentataionComposer
 
 # from visualDet3D.data_augmentation.copy_paste import CopyPaste_Object
 from visualDet3D.utils.iou_3d import get_3d_box, box3d_iou, box2d_iou, box2d_iog
@@ -735,9 +731,9 @@ class RandomMirror(object):
 
                         # yaw
                         ry = obj.ry
-                        ry = (-math.pi - ry) if ry < 0 else (math.pi - ry)
-                        while ry > math.pi: ry -= math.pi * 2
-                        while ry < (-math.pi): ry += math.pi * 2
+                        ry = (-pi - ry) if ry < 0 else (pi - ry)
+                        while ry > pi: ry -= pi * 2
+                        while ry < (-pi): ry += pi * 2
                         obj.ry = ry
 
                         # alpha 
@@ -945,121 +941,28 @@ class PhotometricDistort(object):
     """
     def __init__(self, distort_prob=1.0, contrast_lower=0.5, contrast_upper=1.5, saturation_lower=0.5, saturation_upper=1.5, hue_delta=18.0, brightness_delta=32):
 
-        self.distort_prob = distort_prob
-
-        # contrast is duplicated because it may happen before or after
-        # the other transforms with equal probability.
-        self.transforms = [
-            RandomContrast(distort_prob, contrast_lower, contrast_upper),
-            ConvertColor(transform='HSV'),
-            RandomSaturation(distort_prob, saturation_lower, saturation_upper),
-            RandomHue(distort_prob, hue_delta),
-            ConvertColor(current='HSV', transform='RGB'),
-            RandomContrast(distort_prob, contrast_lower, contrast_upper)
-        ]
-
-        self.rand_brightness = RandomBrightness(distort_prob, brightness_delta)
+        self.p = distort_prob
+        self.contrast_range = (contrast_lower, contrast_upper)
+        self.saturation_range = (saturation_lower, saturation_upper)
+        self.hue_delta = hue_delta
+        self.brightness_delta = brightness_delta
 
     def __call__(self, left_image, right_image=None, p2=None, p3=None, labels=None, image_gt=None, lidar=None):
 
-        # do contrast first
+        aug_list = [
+            edict(type_name='RandomBrightness', keywords=edict(distort_prob = self.p, delta = self.brightness_delta)),
+            edict(type_name='RandomContrast'  , keywords=edict(distort_prob = self.p, lower = self.contrast_range[0], upper = self.contrast_range[1])),
+            edict(type_name='ConvertColor'    , keywords=edict(transform='HSV')),
+            edict(type_name='RandomSaturation', keywords=edict(distort_prob = self.p, lower = self.saturation_range[0], upper = self.saturation_range[1])),
+            edict(type_name='RandomHue'       , keywords=edict(distort_prob = self.p, delta = self.hue_delta)),
+            edict(type_name='ConvertColor'    , keywords=edict(current = 'HSV', transform = 'RGB')),
+        ]
+
         if random.rand() <= 0.5:
-            distortion = self.transforms[:-1]
-
-        # do contrast last
-        else:
-            distortion = self.transforms[1:]
-
-        # add random brightness
-        distortion.insert(0, self.rand_brightness)
-
-        # compose transformation
-        distortion = Compose.from_transforms(distortion)
-
-        return distortion(left_image.copy(), right_image if right_image is None else right_image.copy(), p2, p3, labels, image_gt, lidar)
-
-class Augmentation(object):
-    """
-    Data Augmentation class which packages the typical pre-processing
-    and all data augmentation transformations (mirror and photometric distort)
-    into a single transform.
-    """
-    def __init__(self, cfg):
-
-        self.mean = cfg.rgb_mean
-        self.stds = cfg.rgb_std
-        self.size = cfg.cropSize
-        self.mirror_prob = cfg.mirrorProb
-        self.distort_prob = cfg.distortProb
-
-        if cfg.distortProb <= 0:
-            self.augment = Compose.from_transforms([
-                ConvertToFloat(),
-                CropTop(cfg.crop_top),
-                Resize(self.size),
-                RandomMirror(self.mirror_prob),
-                Normalize(self.mean, self.stds),
-                RandomZoom(),
-            ])
-        else:
-            self.augment = Compose.from_transforms([
-                ConvertToFloat(),
-                PhotometricDistort(self.distort_prob),
-                CropTop(cfg.crop_top),
-                #RandomCrop(self.distort_prob, self.size),
-                Resize(self.size),
-                RandomMirror(self.mirror_prob),
-                Normalize(self.mean, self.stds),
-                RandomZoom(),
-            ])
-
-    def __call__(self, left_image, right_image, p2=None, p3=None, labels=None, image_gt=None, lidar=None):
-        return self.augment(left_image, right_image, p2, p3, labels, image_gt, lidar)
-
-class Preprocess(object):
-    """
-    Preprocess function which ONLY does the basic pre-processing of an image,
-    meant to be used during the testing/eval stages.
-    """
-    def __init__(self, cfg):
-
-        self.mean = cfg.rgb_mean
-        self.stds = cfg.rgb_std
-        self.size = cfg.cropSize
-
-        self.preprocess = Compose.from_transforms([
-            ConvertToFloat(),
-            CropTop(cfg.crop_top),
-            Resize(self.size),
-            Normalize(self.mean, self.stds)
-        ])
-
-    def __call__(self, left_image, right_image, p2=None, p3=None, labels=None, image_gt=None, lidar=None):
-
-        left_image, right_image, p2, p3, labels, image_gt, lidar = self.preprocess(left_image, right_image, p2, p3, labels, image_gt, lidar)
-
-        #img = np.transpose(img, [2, 0, 1])
-
-        return left_image, right_image, p2, p3, labels, image_gt, lidar
-
-@AUGMENTATION_DICT.register_module
-class Shuffle(object):
-    """
-        Initialize a sequence of transformations. During function call, it will randomly shuffle the augmentation calls.
-
-        Can be used with Compose to build complex augmentation structures.
-    """
-    def __init__(self, aug_list:List[EasyDict]):
-        self.transforms = [
-            build_single_augmentator(aug_cfg) for aug_cfg in aug_list
-        ]
-
-    def __call__(self, left_image, right_image=None, p2=None, p3=None, labels=None, image_gt=None, lidar=None):
-        # We aim to keep the original order of the initialized transforms in self.transforms, so we only randomize the indexes.
-        shuffled_indexes = np.random.permutation(len(self.transforms))
-
-        for index in shuffled_indexes:
-            left_image, right_image, p2, p3, labels, image_gt, lidar = self.transforms[index](left_image, right_image, p2, p3, labels, image_gt, lidar)
+            # do contrast last
+            random_contrast = aug_list.pop(1)
+            aug_list.append(random_contrast)
         
-        return left_image, right_image, p2, p3, labels, image_gt, lidar
-
+        # compose transformation
+        distortion = AugmentataionComposer(aug_list, is_return_all = True)
+        return distortion(left_image.copy(), right_image if right_image is None else right_image.copy(), p2, p3, labels, image_gt, lidar)
