@@ -18,14 +18,11 @@ import copy
 from math import sqrt, pi
 from easydict import EasyDict as edict
 
-from visualDet3D.networks.utils.utils import BBox3dProjector
-from visualDet3D.utils.utils import theta2alpha_3d
-from visualDet3D.networks.utils.registry import AUGMENTATION_DICT
-from visualDet3D.data.kittidata import KittiObj
-from .augmentation_composer import AugmentataionComposer
-
-# from visualDet3D.data_augmentation.copy_paste import CopyPaste_Object
+from visualDet3D.utils.cal import BBox3dProjector, theta2alpha_3d
+from visualDet3D.utils.registry import AUGMENTATION_DICT
 from visualDet3D.utils.iou_3d import get_3d_box, box3d_iou, box2d_iou, box2d_iog
+from visualDet3D.utils.kitti_data_parser import KittiObj
+from .augmentation_composer import AugmentataionComposer
 
 # Added by spiderkiller
 @AUGMENTATION_DICT.register_module

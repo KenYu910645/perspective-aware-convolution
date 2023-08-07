@@ -9,11 +9,8 @@ cfg.trainer = edict(
     gpu = 0,
     max_epochs = 30,
     disp_iter = 1,
-    save_iter = 99,
+    save_iter = 1,
     test_iter = 1,
-    training_func = "train_mono_detection",
-    test_func = "test_mono_detection",
-    evaluate_func = "evaluate_kitti_obj",
 )
 
 cfg.optimizer = edict(
@@ -31,9 +28,6 @@ cfg.data = edict(
     batch_size = 8,
     num_workers = 8,
     rgb_shape = (288, 1280, 3),
-    train_dataset = "KittiMonoDataset",
-    val_dataset   = "KittiMonoDataset",
-    test_dataset  = "KittiMonoTestDataset",
     train_split_file = 'visualDet3D/data/kitti_data_split/kitti_anchor_gen_split/train_all.txt',
     val_split_file   = 'visualDet3D/data/kitti_data_split/kitti_anchor_gen_split/val_all.txt',
     use_right_image = False,
@@ -139,7 +133,7 @@ cfg.detector.loss = edict(
 
 cfg.detector.test = edict(
     score_thr=0.5, # 0.75
-    cls_agnostic = False,
+    cls_agnostic = True, # False
     nms_iou_thr=0.5, # 0.5, bigger -> striker
-    post_optimization = False, # TODO, True
+    post_optimization = False,
 )

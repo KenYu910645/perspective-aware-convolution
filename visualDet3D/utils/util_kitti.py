@@ -34,6 +34,18 @@ shape_dict = {'A': (375, 1242, 3),
               'C': (374, 1238, 3),
               'D': (376, 1241, 3)}
 
+# Statistic
+AVG_HEIGT = 1.526
+AVG_WIDTH = 1.629
+AVG_LENTH = 3.884
+
+STD_HEIGT = 0.137
+STD_WIDTH = 0.102
+STD_LENTH = 0.426
+
+ANCHOR_Y_3D_MEAN = 1.71
+ANCHOR_Y_3D_STD  = 0.38574
+
 def kitti_predi_file_parser(predi_file_path, tf_matrix):
     with open(predi_file_path) as f:
         lines = f.read().splitlines()
@@ -123,43 +135,6 @@ def gac_original_anchor_parser(pkl_path, tf_matrix):
         anchor_objects.append(KITTI_Object(str_line, tf_matrix))
     
     return anchor_2D, anchor_3D, anchor_mask, anchor_objects
-
-# 
-# # assume crop_top 100 pixel and resize into (288, 1280)
-# CROP_TOP = 100
-# img_new_h, img_new_w = (288, 1280) # img_new_h, img_new_w
-
-# img = cv2.imread("/home/lab530/KenYu/kitti/training/image_2/000169.png")
-# img_ori_h, img_ori_w, _ = img.shape
-# img_crp_h = img_ori_h - CROP_TOP
-
-# # All the image has the same P2
-# P2 = kitti_calib_file_parser("/home/lab530/KenYu/kitti/training/calib/000169.txt")
-# # Transform P2 calibration matrix
-# P2_tf = copy.deepcopy(P2)
-# # Crop Top 
-# P2_tf[1, 2] = P2_tf[1, 2] - CROP_TOP               # cy' = cy - dv
-# P2_tf[1, 3] = P2_tf[1, 3] - CROP_TOP * P2_tf[2, 3] # ty' = ty - dv * tz
-# # Resize (Preserved aspect ratio)
-# P2_tf[0, :] = P2_tf[0, :] * img_new_h / img_crp_h
-# P2_tf[1, :] = P2_tf[1, :] * img_new_h / img_crp_h
-
-# P2_fpn_tf = copy.deepcopy(P2) # TODO
-# # Resize
-# P2_fpn_tf[0, :] *= 384 / img_ori_h
-# P2_fpn_tf[1, :] *= 384 / img_ori_h
-
-# Statistic
-AVG_HEIGT = 1.526
-AVG_WIDTH = 1.629
-AVG_LENTH = 3.884
-
-STD_HEIGT = 0.137
-STD_WIDTH = 0.102
-STD_LENTH = 0.426
-
-ANCHOR_Y_3D_MEAN = 1.71
-ANCHOR_Y_3D_STD  = 0.38574
 
 class KITTI_Object:
     def __init__(self, str_line, tf_matrix, idx_img = None, idx_line = None, center_2d = None):

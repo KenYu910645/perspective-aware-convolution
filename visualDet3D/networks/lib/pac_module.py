@@ -80,9 +80,6 @@ class PerspectiveConv2d(nn.Module):
 
         self.offset_cache = {}
         
-        #
-        # print(f"self.offsets.max() = {self.offsets.max()}") #  4.9375
-        # print(f"self.offsets.min() = {self.offsets.min()}") # -4.1875
 
     def get_offset(self, P2):
         # Use cache to speed up

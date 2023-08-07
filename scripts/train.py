@@ -17,17 +17,16 @@ sys.path.insert(0, visualDet3D_path)
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 
-
-from visualDet3D.data.mono_dataset import KittiMonoDataset
+from visualDet3D.data.kitti_dataset import KittiDataset
 from visualDet3D.data.sampler import TrainingSampler
-from visualDet3D.data.imdb_precompute_3d import read_one_split, process_train_val_file
-from visualDet3D.networks.utils.registry import PIPELINE_DICT
-from visualDet3D.networks.utils.utils import get_num_parameters
+from visualDet3D.data.preprocess import preprocess_train_dataset, process_train_val_file, preprocess_val_dataset
+from visualDet3D.utils.cal import get_num_parameters
 from visualDet3D.networks.optimizers import optimizers, schedulers
 from visualDet3D.networks.detectors.yolo3d_detector import Yolo3D
 from visualDet3D.utils.timer import Timer
-from visualDet3D.utils.utils import LossLogger, cfg_from_file, create_dir
+from visualDet3D.utils.utils import LossLogger, cfg_from_file
 from visualDet3D.utils.utils import compound_annotation
+from visualDet3D.evaluator.evaluators import evaluate_kitti_obj
 
 # For print out loss
 loss_avg_dict = {"1/reg_loss": 0,
@@ -56,22 +55,7 @@ def main(cfg_path="config/project_name/exp_name.py", experiment_name="default", 
     assert len(cfg_path.split('/')) == 3, "config_path must be in the format of config/project_name/exp_name.py" 
     
     cfg = cfg_from_file(cfg_path)
-    cfg.path = edict()
-    cfg.path.project_path      = os.path.join('exp_output', cfg_path.split('/')[1], cfg_path.split('/')[2].split('.')[0])
-    cfg.path.log_path          = os.path.join(cfg.path.project_path, "log")
-    cfg.path.checkpoint_path   = os.path.join(cfg.path.project_path, "checkpoint")
-    cfg.path.preprocessed_path = os.path.join(cfg.path.project_path, "output")
-    cfg.path.train_imdb_path   = os.path.join(cfg.path.project_path, "output", "training")
-    cfg.path.train_disp_path   = os.path.join(cfg.path.project_path, "output", "training", "disp")
-    cfg.path.val_imdb_path     = os.path.join(cfg.path.project_path, "output", "validation")
 
-    create_dir(cfg.path.project_path)
-    create_dir(cfg.path.log_path)
-    create_dir(cfg.path.checkpoint_path)
-    create_dir(cfg.path.preprocessed_path)
-    create_dir(cfg.path.train_imdb_path)
-    create_dir(cfg.path.val_imdb_path)
-    create_dir(cfg.path.train_disp_path)
 
     torch.cuda.set_device(cfg.trainer.gpu)
     
@@ -110,13 +94,13 @@ def main(cfg_path="config/project_name/exp_name.py", experiment_name="default", 
         torch.distributed.init_process_group(backend='nccl', init_method='env://')
 
     # Load training datatset
+    train_names, val_names = process_train_val_file(cfg)
     output_dict = {"calib": True,
                    "image": True,
                    "label": True,
                    "velodyne": False,
                    "depth": is_copy_paste,}
-    train_names, val_names = process_train_val_file(cfg)
-    read_one_split(cfg, train_names, cfg.data.train_data_path, output_dict, 'training')
+    imdb_frames_train = preprocess_train_dataset(cfg, train_names, cfg.data.train_data_path, output_dict)
     
     # Load validation datatset
     output_dict = {"calib": True,
@@ -124,16 +108,13 @@ def main(cfg_path="config/project_name/exp_name.py", experiment_name="default", 
                    "label": True,
                    "velodyne": False,
                    "depth": False,}
-    read_one_split(cfg, val_names, cfg.data.train_data_path, output_dict, 'validation')
+    imdb_frames_val = preprocess_val_dataset(cfg, val_names, cfg.data.train_data_path, output_dict)
 
     print("Preprocessing finished")
 
-    ## define datasets and dataloader.
-    dataset_train = KittiMonoDataset(cfg, "training") # DATASET_DICT[cfg.data.train_dataset](cfg, "training")
-    dataset_val   = KittiMonoDataset(cfg, "validation") # DATASET_DICT[cfg.data.val_dataset]  (cfg, "validation")
-
-    # for i in dataset_train:
-    #     print(i.keys()) # ['calib', 'image', 'label', 'bbox2d', 'bbox3d', 'original_shape', 'original_P', 'loc_3d_roy']
+    # define datasets and dataloader.
+    dataset_train = KittiDataset(cfg, imdb_frames_train, "training")
+    dataset_val   = KittiDataset(cfg, imdb_frames_val, "validation")
     print('[train.py] Number of training images: {}'.format(len(dataset_train)))
     print('[train.py] Number of validation images: {}'.format(len(dataset_val)))
 
@@ -198,17 +179,9 @@ def main(cfg_path="config/project_name/exp_name.py", experiment_name="default", 
     # define loss logger
     training_loss_logger = LossLogger(writer, 'train') if is_logging else None
 
-    # Get evaluation pipeline # TODO remove eval pipeline
-    if 'evaluate_func' in cfg.trainer:
-        evaluate_detection = PIPELINE_DICT[cfg.trainer.evaluate_func]
-        print("Found evaluate function {}".format(cfg.trainer.evaluate_func))
-    else:
-        evaluate_detection = None
-        print("Evaluate function not found")
-
     # timer is used to estimate eta
     timer = Timer()
-
+    
     # Record the current best validation evaluation result
     best_result = (-1, -1, -1, -1, -1, -1, -1, -1, -1) # 3d_e, 3d_m, 3d_h, bev_e, bev_m, bev_h, bbox_e, bbox_m, bbox_h
     best_epoch  = -1
@@ -315,10 +288,9 @@ def main(cfg_path="config/project_name/exp_name.py", experiment_name="default", 
                 )
             )
 
-        ## test model in main process if needed
-        if is_evaluating and evaluate_detection is not None and cfg.trainer.test_iter > 0 and (epoch_num + 1) % cfg.trainer.test_iter == 0:
+        if is_evaluating and cfg.trainer.test_iter > 0 and (epoch_num + 1) % cfg.trainer.test_iter == 0:
             print("\n/**** start testing after training epoch {} ******/".format(epoch_num))
-            eval_result = evaluate_detection(cfg, detector.module if is_distributed else detector, dataset_val, writer, epoch_num)
+            eval_result = evaluate_kitti_obj(cfg, detector.module if is_distributed else detector, dataset_val, writer, epoch_num, output_path = os.path.join(cfg.path.preprocessed_path, "validation", "data"))
             print("/**** finish testing after training epoch {} ******/".format(epoch_num))
             
             # check whether is the best run, don't consider 2d bbox result

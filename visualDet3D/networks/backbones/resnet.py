@@ -1,11 +1,8 @@
 from typing import Tuple, List, Union
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 import math
 import torch.utils.model_zoo as model_zoo
-from visualDet3D.networks.utils.registry import BACKBONE_DICT
 from visualDet3D.networks.lib.bam import BAM
 
 def conv3x3(in_planes, out_planes, stride=1, dilation=1):
@@ -51,7 +48,6 @@ class BasicBlock(nn.Module):
         out = self.relu(out)
 
         return out
-
 
 class Bottleneck(nn.Module):
     '''
@@ -259,7 +255,6 @@ class ResNet(nn.Module):
         return outs
 
 
-
 def resnet18(pretrained=True, **kwargs):
     """Constructs a ResNet-18 model.
     Args:
@@ -270,7 +265,6 @@ def resnet18(pretrained=True, **kwargs):
         model.load_state_dict(model_zoo.load_url(model_urls['resnet18'], model_dir='.'), strict=False)
     return model
 
-
 def resnet34(pretrained=True, **kwargs):
     """Constructs a ResNet-34 model.
     Args:
@@ -280,7 +274,6 @@ def resnet34(pretrained=True, **kwargs):
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet34'], model_dir='.'), strict=False)
     return model
-
 
 def resnet50(pretrained=True, **kwargs):
     """Constructs a ResNet-50 model.
@@ -302,7 +295,6 @@ def resnet101(pretrained=True, **kwargs):
         model.load_state_dict(model_zoo.load_url(model_urls['resnet101'], model_dir='.'), strict=False)
     return model
 
-
 def resnet152(pretrained=True, **kwargs):
     """Constructs a ResNet-152 model.
     Args:
@@ -313,7 +305,6 @@ def resnet152(pretrained=True, **kwargs):
         model.load_state_dict(model_zoo.load_url(model_urls['resnet152'], model_dir='.'), strict=False)
     return model
 
-@BACKBONE_DICT.register_module
 def resnet(depth, **kwargs):
     if depth == 18:
         model = resnet18(**kwargs)

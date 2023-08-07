@@ -1,6 +1,7 @@
 from time import time
 from functools import wraps
 import torch
+
 def profile(name, profile_start=0, profile_end=1):
     def profile_wrapper(func):
         @wraps(func)
@@ -23,7 +24,6 @@ def profile(name, profile_start=0, profile_end=1):
         profiled_func.call_time = 0
         return profiled_func
     return profile_wrapper
-
 
 class Timer:
     """

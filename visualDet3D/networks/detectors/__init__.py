@@ -1,1 +1,1 @@
-from .yolo3d_detector import Yolo3D
+# from .yolo3d_detector import Yolo3D

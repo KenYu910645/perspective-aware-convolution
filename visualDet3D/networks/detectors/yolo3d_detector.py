@@ -1,10 +1,8 @@
 import torch
 import torch.nn as nn
-from visualDet3D.networks.utils import DETECTOR_DICT
-from visualDet3D.networks.backbones import resnet
+from visualDet3D.networks.backbones.resnet import resnet
 from visualDet3D.networks.detectors.yolo3d_head import Yolo3D_Head
 
-@DETECTOR_DICT.register_module
 class Yolo3D(nn.Module):
     def __init__(self, cfg):
         super(Yolo3D, self).__init__()
@@ -30,7 +28,6 @@ class Yolo3D(nn.Module):
             self.backbone = nn.Sequential(*child_modules)
         else:
             self.backbone = resnet(**cfg.detector.backbone)
-        
         
         # Build detection head 
         self.detection_head = Yolo3D_Head(cfg)
@@ -104,7 +101,9 @@ class Yolo3D(nn.Module):
                         bbox = [bbox2d(length=4) , cx, cy, z, w, h, l, alpha]
         """
         assert img_batch.shape[0] == 1 # we recommmend image batch size = 1 for testing
-        
+        # print(f"[yolo3d_detector.py]img_batch = {img_batch.shape}") # [1, 3, 288, 1280]
+        # print(f"[yolo3d_detector.py]P2 = {P2.shape}") # [1, 3, 4]
+
         # This is for visulization 
         # import pickle
         # with open('img_batch.pkl', 'wb') as f:
@@ -117,16 +116,16 @@ class Yolo3D(nn.Module):
         # Detection Head
         preds   = self.detection_head(dict(features=features, P2=P2))
         anchors = self.detection_head.get_anchor(img_batch, P2)
-        # print(f"anchors['anchors'] = {anchors['anchors'].shape}") # [1, 46080, 4]
-        # print(f"anchors['mask'] = {anchors['mask'].shape}") # [1, 46080]
-        # print(f"anchors['anchor_mean_std_3d'] = {anchors['anchor_mean_std_3d'].shape}") # [46080, 1, 6, 2]
+        # print(f"[yolo3d_detector.py]anchors['anchors'] = {anchors['anchors'].shape}") # [1, 46080, 4]
+        # print(f"[yolo3d_detector.py]anchors['mask'] = {anchors['mask'].shape}") # [1, 46080]
+        # print(f"[yolo3d_detector.py]anchors['anchor_mean_std_3d'] = {anchors['anchor_mean_std_3d'].shape}") # [46080, 1, 6, 2]
         
-        scores, bboxes, cls_indexes, noam = self.detection_head.get_bboxes(preds, anchors, P2, img_batch)
-        # print(f"scores = {scores.shape}") # torch.Size([5]) # [number of detection], confident score
-        # print(f"bboxes = {bboxes.shape}") # torch.Size([5, 11]),
-        # print(f"cls_indexes = {cls_indexes.shape}") # torch.Size([5]), class_idx
+        scores, bboxes, cls_indexes = self.detection_head.get_bboxes(preds, anchors, P2, img_batch)
+        # print(f"[yolo3d_detector.py]scores = {scores.shape}") # torch.Size([5]) # [number of detection], confident score
+        # print(f"[yolo3d_detector.py]bboxes = {bboxes.shape}") # torch.Size([5, 11]),
+        # print(f"[yolo3d_detector.py]cls_indexes = {cls_indexes.shape}") # torch.Size([5]), class_idx
         
-        return scores, bboxes, cls_indexes, noam
+        return scores, bboxes, cls_indexes
 
     def forward(self, inputs):
 

@@ -1,8 +1,8 @@
 from typing import Callable, List, Union
 import numpy as np
 from easydict import EasyDict
-from visualDet3D.networks.utils.registry import AUGMENTATION_DICT
-from visualDet3D.data.kittidata import KittiObj
+from visualDet3D.utils.registry import AUGMENTATION_DICT
+from visualDet3D.utils.kitti_data_parser import KittiObj
 
 @AUGMENTATION_DICT.register_module
 class AugmentataionComposer(object):

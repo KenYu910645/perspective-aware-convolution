@@ -2,7 +2,22 @@ from numba import jit
 import numpy as np
 from .bbox3d import project_3d
 from .bbox2d import iou_2d
-from visualDet3D.utils.utils import convertAlpha2Rot, convertRot2Alpha
+
+def convertAlpha2Rot(alpha, cx, P2):
+    cx_p2 = P2[..., 0, 2]
+    fx_p2 = P2[..., 0, 0]
+    ry3d = alpha + np.arctan2(cx - cx_p2, fx_p2)
+    ry3d[np.where(ry3d > np.pi)] -= 2 * np.pi
+    ry3d[np.where(ry3d <= -np.pi)] += 2 * np.pi
+    return ry3d
+
+def convertRot2Alpha(ry3d, cx, P2):
+    cx_p2 = P2[..., 0, 2]
+    fx_p2 = P2[..., 0, 0]
+    alpha = ry3d - np.arctan2(cx - cx_p2, fx_p2)
+    alpha[alpha > np.pi] -= 2 * np.pi
+    alpha[alpha <= -np.pi] += 2 * np.pi
+    return alpha
 
 def post_opt(bbox_2d, bbox3d_state_3d, P2, cx, cy):
     """

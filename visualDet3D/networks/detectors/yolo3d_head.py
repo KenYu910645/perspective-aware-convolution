@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 from torchvision.ops import nms
 import numpy as np
+
 from visualDet3D.networks.detectors.losses import CIoULoss, DIoULoss, SigmoidFocalLoss, ModifiedSmoothL1Loss, IoULoss
 from visualDet3D.networks.detectors.anchors import Anchors
-from visualDet3D.networks.utils.utils import calc_iou, BackProjection, ClipBoxes
+from visualDet3D.utils.cal import calc_iou, BackProjection, ClipBoxes
 from visualDet3D.networks.lib.fast_utils.hill_climbing import post_opt
 from visualDet3D.networks.lib.blocks import AnchorFlatten
 from visualDet3D.networks.lib.look_ground import LookGround
@@ -620,10 +621,10 @@ class Yolo3D_Head(nn.Module):
             label - [N_D] - [5]
                 class index, show category of detections 
         '''
-        test_cfg = self.cfg.detector.head.test
+        test_cfg = self.cfg.detector.test
 
-        cls_preds = preds['cls_preds']
-        reg_preds = preds['reg_preds']
+        cls_preds = preds['cls_preds'] # [1, 46080, 2]
+        reg_preds = preds['reg_preds'] # [1, 46080, 12]
         dep_preds = preds['dep_preds']
         
         assert cls_preds.shape[0] == 1 # batch == 1
@@ -691,7 +692,7 @@ class Yolo3D_Head(nn.Module):
             max_score, bboxes, label = self._post_process(max_score, bboxes, label, P2s)
         # print(bboxes.shape) # [n_det, 11] # [x1, y1, x2, y2, cx, cy, cz, w, h, l, alpha]
         
-        return max_score, bboxes, label, None
+        return max_score, bboxes, label
 
     def loss(self, preds, anchors, annos, P2s):
         '''
