@@ -1,12 +1,12 @@
 import matplotlib # Disable GUI
 matplotlib.use('agg')
-
 import os
 import time
 import fire
 import torch
 from tqdm import tqdm
 import sys
+
 visualDet3D_path = os.path.dirname(sys.path[0])  #two folders upwards
 sys.path.insert(0, visualDet3D_path)
 
@@ -79,8 +79,7 @@ def main(cfg_path:str="config/project_name/exp_name.py",
     
     # Load pretrain model
     state_dict = torch.load(checkpoint_path, map_location='cuda:{}'.format(cfg.trainer.gpu))
-    new_dict = state_dict.copy()
-    detector.load_state_dict(new_dict, strict=False)
+    detector.load_state_dict(state_dict.copy(), strict=False)
     detector.eval()
 
     # Clean the result path
@@ -103,7 +102,6 @@ def main(cfg_path:str="config/project_name/exp_name.py",
     if split_to_test == "train" or split_to_test == "val":
         eval_result = evaluate_kitti_obj(cfg, detector, dataset, None, 0, output_path = output_path)
     else:
-
         # Only inference on testing dataset
         fn_list = [i.split('.')[0] for i in os.listdir( os.path.join(cfg.data.test_data_path, "image_2"))]
         

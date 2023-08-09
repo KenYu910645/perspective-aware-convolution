@@ -40,7 +40,10 @@ class Yolo3D(nn.Module):
 
     def backbone_forward(self, x):
         # print(f"x['image'] = {x['image'].shape}") # torch.Size([8, 3, 288, 1280])
+        # print(f"Before torch.cuda.memory_allocated(0) = {torch.cuda.memory_allocated(0)}")
         x = self.backbone(x['image']) # [8, 2048, 9, 40]
+        # print(f"After torch.cuda.memory_allocated(0) = {torch.cuda.memory_allocated(0)}")
+        
         if "resnext_mode_name" in self.cfg.detector.backbone:
             x = torch.unsqueeze(x, dim=0)
 
@@ -112,7 +115,7 @@ class Yolo3D(nn.Module):
 
         # Feature Extraction
         features  = self.backbone_forward(dict(image=img_batch, P2=P2)) # [8, 1024, 18, 80]
-
+        
         # Detection Head
         preds   = self.detection_head(dict(features=features, P2=P2))
         anchors = self.detection_head.get_anchor(img_batch, P2)

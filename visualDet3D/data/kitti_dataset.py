@@ -140,44 +140,37 @@ class KittiDataset(Dataset):
         bbox2ds   = [item['bbox2d']    for item in batch]
         bbox3ds   = [item['bbox3d']    for item in batch]
         loc_3d_ry = [item['loc_3d_ry'] for item in batch]
-        # This line will cause warning:
-        # Creating a tensor from a list of numpy.ndarrays is extremely slow. 
-        # Please consider converting the list to a single numpy.ndarray with numpy.array() before converting to a tensor.
-        # add np.array() to avoid warning.
+
         return torch.from_numpy(rgb_images).float(), torch.tensor(np.array(calib)).float(), label, bbox2ds, bbox3ds, loc_3d_ry
 
 class KittiTestDataset(KittiDataset):
     def __init__(self, cfg, imdb_frames, split="test"):
         super(KittiTestDataset, self).__init__(cfg, imdb_frames, split="test")
         self.imdb = imdb_frames
-        self.output_dict = {
-                "calib": False,
-                "image": True,
-                "label": False,
-                "velodyne": False,
-                "depth": False,
-        }
 
     def __getitem__(self, index):
 
         kitti_data = self.imdb[index % len(self.imdb)]
-        kitti_data.output_dict = self.output_dict
+        kitti_data.output_dict = {"calib": False,
+                                  "image": True,
+                                  "label": False,
+                                  "velodyne": False,
+                                  "depth": False,}
         _, image, _, _, _ = kitti_data.read_data()
 
         calib = kitti_data.calib
         calib.image_shape = image.shape
+        
         transformed_image, transformed_P2 = self.transform(image, p2=deepcopy(calib.P2))
-        output_dict = {'calib': transformed_P2,
-                       'image': transformed_image,
-                       'original_shape':image.shape,
-                       'original_P':calib.P2.copy()}
-        return output_dict
+        return {'calib': transformed_P2,
+                'image': transformed_image,
+                'original_shape':image.shape,
+                'original_P':calib.P2.copy()}
 
     @staticmethod
     def collate_fn(batch):
-        rgb_images = np.array([item["image"]
-                               for item in batch])  # [batch, H, W, 3]
+        rgb_images = np.array([item["image"] for item in batch])  # [batch, H, W, 3]
         rgb_images = rgb_images.transpose([0, 3, 1, 2])
+        calib     = [item["calib"]     for item in batch]
 
-        calib = [item["calib"] for item in batch]
-        return torch.from_numpy(rgb_images).float(), calib 
+        return torch.from_numpy(rgb_images).float(), torch.tensor(np.array(calib)).float()

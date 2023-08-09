@@ -1,16 +1,17 @@
 ################
 ### Training ###
 ################
-
-# ./launchers/train.sh config/pac_new/pac_module.py 0 pac_module
+./launchers/train.sh config/pac_new/baseline.py 0 baseline
+./launchers/train.sh config/pac_new/pac_layer1.py 0 pac_layer1
+./launchers/train.sh config/pac_new/pac_module.py 0 pac_module
 
 ##################
 ### Evaluation ###
 ##################
-python ./scripts/test.py --cfg_path="config/pac_new/pac_module.py" \
-                         --gpu=0 \
-                         --checkpoint_path="exp_output/pac_new/pac_module/checkpoint/Yolo3D_latest.pth" \
-                         --split_to_test="val" \
+# python ./scripts/test.py --cfg_path="config/pac_new/pac_module.py" \
+#                          --gpu=0 \
+#                          --checkpoint_path="exp_output/pac_new/pac_module/checkpoint/Yolo3D_latest.pth" \
+#                          --split_to_test="test" \
 
 # ./launchers/det_precompute.sh config/baseline.py train
 # ./launchers/eval.sh config/baseline.py 0 /home/lab530/KenYu/visualDet3D/exp_output/baseline_gac_original/Mono3D/checkpoint/GroundAwareYolo3D_latest.pth validation

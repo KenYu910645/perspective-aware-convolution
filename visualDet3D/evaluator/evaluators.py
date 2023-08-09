@@ -73,6 +73,7 @@ def evaluate_kitti_obj(cfg:EasyDict,
             bev_result   [0], bev_result   [1], bev_result   [2],
             bbox_result  [0], bbox_result  [1], bbox_result  [2])
 
+@torch.no_grad()
 def test_one(cfg, index, fn_list, dataset, model, backprojector:BackProjection, projector:BBox3dProjector, result_path):
     
     data = dataset[index]
@@ -85,8 +86,10 @@ def test_one(cfg, index, fn_list, dataset, model, backprojector:BackProjection, 
     original_height = data['original_shape'][0]
     collated_data = dataset.collate_fn([data])
     height = collated_data[0].shape[2]
+    
+    scores, bbox, obj_index = model([collated_data[0].cuda().float().contiguous(), 
+                                     torch.tensor(collated_data[1]).cuda().float()])
 
-    scores, bbox, obj_index = model([collated_data[0].cuda().float().contiguous(), torch.tensor(collated_data[1]).cuda().float()])
     obj_names = [cfg.obj_types[i.item()] for i in obj_index]
 
     bbox_2d = bbox[:, 0:4]
@@ -110,6 +113,7 @@ def test_one(cfg, index, fn_list, dataset, model, backprojector:BackProjection, 
         bbox_2d[:, 1:4:2] *= scale_y
 
         write_result_to_file(result_path, fn_list[index], scores, bbox_2d, bbox_3d_state_3d, thetas, obj_names)
+
     else:
         if "crop_top" in cfg.data.augmentation and cfg.data.augmentation.crop_top is not None:
             crop_top = cfg.data.augmentation.crop_top

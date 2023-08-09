@@ -208,7 +208,6 @@ class ResNet(nn.Module):
                 layer.eval()
 
     def forward(self, img_batch):
-        
         outs = []
         
         #############

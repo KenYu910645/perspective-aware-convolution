@@ -87,7 +87,7 @@ cfg.detector.dilation_module = edict(
     is_rfb = False,
     num_dcnv2 = 0,
     is_pac_module = False,
-    num_pac_layer = 0,
+    num_pac_layer = 1,
     d_rate_xy = (32, 32),
     lock_theta_ortho = False,
 )
