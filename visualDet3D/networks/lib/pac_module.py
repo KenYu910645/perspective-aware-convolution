@@ -85,7 +85,6 @@ class PerspectiveConv2d(nn.Module):
         # Use cache to speed up
         if str(P2) in self.offset_cache: return self.offset_cache[str(P2)]
         
-        # offset = np.zeros((8, 18, self.h+self.pad_size*2, self.w+self.pad_size*2))
         offset = np.zeros((1, 18, self.h, self.w))
         
         for v_f_idx in range(self.h):
