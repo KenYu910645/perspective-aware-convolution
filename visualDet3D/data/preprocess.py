@@ -12,11 +12,7 @@ from visualDet3D.utils.timer import Timer
 from visualDet3D.utils.util_kitti import kitti_calib_file_parser
 from visualDet3D.data_augmentation.copy_paste import CopyPaste_Object
 from visualDet3D.data_augmentation.augmentation_composer import AugmentataionComposer
-
-# Reference: https://blog.csdn.net/xr627/article/details/127581608
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # For avoid tensorflow mumbling
-import matplotlib
-matplotlib.use('agg')
+from visualDet3D.utils.registry import AUGMENTATION_DICT
 
 def process_train_val_file(cfg):
 
@@ -104,20 +100,17 @@ def preprocess_train_dataset(cfg, index_names, data_root_dir, output_dict, time_
             
         sum_zscwhl = np.zeros((len(cfg.obj_types), 6), dtype=np.float64) # [z, sin2a, cos2a, w, h, l] : sum of all labels
         squ_zscwhl = np.zeros((len(cfg.obj_types), 6), dtype=np.float64) # sqaure of all label
-
-    is_copy_paste = False
-    for d in cfg.data.train_augmentation:
-        if d['type_name'] == 'CopyPaste':
-            is_copy_paste = True
-            copy_paste_use_seg = d['keywords']['use_seg']
     
+
+
+    is_copy_paste = any(d['type_name'] == 'CopyPaste' for d in cfg.data.train_augmentation)
     
     instance_pool = []
     cover_bbox2d_gts = []
     misss_bbox2d_gts = []
     for i, index_name in enumerate(index_names):
         if is_copy_paste:
-            print(f"[imdb_precompute_3d.py] Enable copy_paste instance pool building")
+            
             ######################################
             ### Build copy paste instance_pool ###
             ######################################
@@ -132,7 +125,7 @@ def preprocess_train_dataset(cfg, index_names, data_root_dir, output_dict, time_
             # Filter inappropiate objs in instance_pool
             for obj in objs:
                 if obj.category in cfg.obj_types and obj.truncated < 0.5 and obj.occluded == 0.0 and obj.area > 3000:
-                    if copy_paste_use_seg and len(obj.seg_points) == 0 : continue
+                    if cfg.data.train_augmentation[0]['keywords']['use_seg'] and len(obj.seg_points) == 0 : continue
                     instance_pool.append(obj)
         
         # read data with dataloader api
@@ -225,8 +218,9 @@ def preprocess_train_dataset(cfg, index_names, data_root_dir, output_dict, time_
     print(f"Best Possible Recall = {100*total_usable_objects[0]/total_objects[0]}%")
     
     save_dir = os.path.join(cfg.path.preprocessed_path, "training")
-    if not os.path.isdir(save_dir):
-        os.makedirs(save_dir)
+    if is_copy_paste:
+        # print(AUGMENTATION_DICT.get('CopyPaste').load_path())
+        AUGMENTATION_DICT.get('CopyPaste').load_path(os.path.join(save_dir, "instance_pool.pkl"), os.path.join(save_dir, "imgs_src.pkl"))
     
     ####################################
     ### Anchor mean, std Calculation ###

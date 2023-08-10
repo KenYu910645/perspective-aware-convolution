@@ -110,6 +110,8 @@ def cfg_from_file(cfg_path:str)->EasyDict:
     cfg.path.val_imdb_path     = os.path.join(cfg.path.project_path, "output", "validation")
     cfg.path.test_imdb_path    = os.path.join(cfg.path.project_path, "output", "testing")
 
+    create_dir('exp_output')
+    create_dir(os.path.join('exp_output', cfg_path.split('/')[1]))
     create_dir(cfg.path.project_path)
     create_dir(cfg.path.log_path)
     create_dir(cfg.path.checkpoint_path)
@@ -119,6 +121,10 @@ def cfg_from_file(cfg_path:str)->EasyDict:
     create_dir(cfg.path.train_disp_path)
     create_dir(cfg.path.test_imdb_path)
 
+    # Create direcotry for validation data file output
+    create_dir(os.path.join(cfg.path.train_imdb_path, "data"))
+    create_dir(os.path.join(cfg.path.val_imdb_path  , "data"))
+    create_dir(os.path.join(cfg.path.test_imdb_path , "data"))
     return cfg
 
 def create_dir(path):

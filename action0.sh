@@ -1,9 +1,9 @@
 ################
 ### Training ###
 ################
-./launchers/train.sh config/pac_new/baseline.py 0 baseline
-./launchers/train.sh config/pac_new/pac_layer1.py 0 pac_layer1
-./launchers/train.sh config/pac_new/pac_module.py 0 pac_module
+# python scripts/train.py --cfg_path="config/pac/baseline.py"
+# python scripts/train.py --cfg_path="config/scene-aware/kitti_seg_solid_10_obj_3_zJitter_sceneAware.py"
+python scripts/train.py --cfg_path="config/das/das.py"
 
 ##################
 ### Evaluation ###

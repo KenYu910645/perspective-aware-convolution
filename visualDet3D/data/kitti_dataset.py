@@ -21,7 +21,7 @@ class KittiDataset(Dataset):
         self.is_train = (split == 'training')
         
         self.use_right_image = cfg.data.use_right_image
-        print(f"[mono_dataset.py] use_right_image = {self.use_right_image}")
+
         self.is_reproject = getattr(cfg.data, 'is_reproject', True) # if reproject 2d
 
         # Load imdb file
@@ -40,9 +40,9 @@ class KittiDataset(Dataset):
             }
 
         if self.is_train:
-            self.transform = AugmentataionComposer(cfg.data.train_augmentation, is_return_all = False)# build_augmentator(cfg.data.train_augmentation)
+            self.transform = AugmentataionComposer(cfg.data.train_augmentation, is_return_all = False)
         else:
-            self.transform = AugmentataionComposer(cfg.data.test_augmentation, is_return_all = False) # build_augmentator(cfg.data.test_augmentation)
+            self.transform = AugmentataionComposer(cfg.data.test_augmentation, is_return_all = False)
         
         self.projector = BBox3dProjector()
 
@@ -77,7 +77,7 @@ class KittiDataset(Dataset):
 
 
     def __getitem__(self, index):
-
+        
         kitti_data = self.imdb[index % len(self.imdb)]
         
         # The calib and label has been preloaded to minimize the time in each indexing

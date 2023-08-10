@@ -43,11 +43,10 @@ loss_avg_dict = {"1/reg_loss": 0,
                  "4/dh": 0,
                  "4/dl": 0,}
 
-def main(cfg_path="config/project_name/exp_name.py", experiment_name="default", world_size=1, local_rank=-1):
+def main(cfg_path="config/project_name/exp_name.py", world_size=1, local_rank=-1):
     """
     KeywordArgs:
         cfg_path (str): Path to config file.
-        experiment_name (str): Custom name for the experitment, only used in tensorboard.
         world_size (int): Number of total subprocesses in distributed training. 
         local_rank: Rank of the process. Should not be manually assigned. 0-N for ranks in distributed training (only process 0 will print info and perform testing). -1 for single training. 
     """

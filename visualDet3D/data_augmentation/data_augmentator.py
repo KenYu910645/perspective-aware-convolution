@@ -17,6 +17,7 @@ import pickle
 import copy
 from math import sqrt, pi
 from easydict import EasyDict as edict
+import os 
 
 from visualDet3D.utils.cal import BBox3dProjector, theta2alpha_3d
 from visualDet3D.utils.registry import AUGMENTATION_DICT
@@ -24,35 +25,29 @@ from visualDet3D.utils.iou_3d import get_3d_box, box3d_iou, box2d_iou, box2d_iog
 from visualDet3D.utils.kitti_data_parser import KittiObj
 from .augmentation_composer import AugmentataionComposer
 
-# Added by spiderkiller
 @AUGMENTATION_DICT.register_module
 class CopyPaste(object):
     """
     Randomly Copy instance to this image
     """
-    def __init__(self, num_add_obj ,use_seg, use_z_jitter ,solid_ratio, use_scene_aware):
-        self.num_add_obj     = num_add_obj # 3
-        self.use_seg         = use_seg
-        self.use_z_jitter    = use_z_jitter
-        self.solid_ratio     = solid_ratio
-        self.use_scene_aware = use_scene_aware
-        
-        self.image_dir = "/home/lab530/KenYu/kitti/training/image_2/"
-        self.depth_dir = "/home/lab530/KenYu/kitti/training/image_depth/"
-        self.instance_pool_path = "/home/lab530/KenYu/visualDet3D/exp_output/scene_aware/Mono3D/output/training/instance_pool.pkl"
-        self.imgs_src_path = "/home/lab530/KenYu/visualDet3D/exp_output/scene_aware/Mono3D/output/training/imgs_src.pkl"
+    def __init__(self, num_add_obj ,use_seg, use_z_jitter ,solid_ratio, use_scene_aware,):
+        self.num_add_obj        = num_add_obj
+        self.use_seg            = use_seg
+        self.use_z_jitter       = use_z_jitter
+        self.solid_ratio        = solid_ratio
+        self.use_scene_aware    = use_scene_aware
+
+    @classmethod
+    def load_path(self, instance_pool_path, imgs_src_path):
         
         # Load Instance Pool
-        print(f"Loading instance pool from {self.instance_pool_path}")
-        self.instance_pool = pickle.load(open(self.instance_pool_path, "rb"))
+        print(f"Loading instance pool from {instance_pool_path}")
+        self.instance_pool = pickle.load(open(instance_pool_path, "rb"))
         
         # Load src images
-        print(f"Loading instance pool from {self.imgs_src_path}")
-        self.imgs_src      = pickle.load(open(self.imgs_src_path, "rb"))
+        print(f"Loading instance pool from {imgs_src_path}")
+        self.imgs_src      = pickle.load(open(imgs_src_path, "rb"))
         
-        # print(f"Loading source images from {self.image_dir}")
-        # self.imgs_src  = {fn.split(".")[0]: cv2.imread(os.path.join(self.image_dir, fn)) for fn in os.listdir(self.image_dir)}
-
     def check_depth_map(self, gt_add, tar_depth):
         try:
             # Calculate the number of pixels above the threshold
