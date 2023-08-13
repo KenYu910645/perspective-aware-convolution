@@ -36,7 +36,7 @@ cfg.data = edict(
     is_overwrite_anchor_file = False,
 
     train_data_path = 'dataset/kitti/training',
-    test_data_path = 'dataset/kitti/testing',
+    test_data_path  = 'dataset/kitti_tracking/training',
 
     augmentation = edict(
         rgb_mean = np.array([0.485, 0.456, 0.406]),

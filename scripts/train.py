@@ -7,8 +7,6 @@ import numpy as np
 
 # Reference: https://blog.csdn.net/xr627/article/details/127581608
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # For avoid tensorflow mumbling
-import matplotlib # Disable GUI
-matplotlib.use('agg')
 
 import sys
 visualDet3D_path = os.path.dirname(sys.path[0])  #two folders upwards

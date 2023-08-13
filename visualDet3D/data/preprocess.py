@@ -307,7 +307,28 @@ def preprocess_test_dataset(cfg, index_names, data_root_dir, output_dict):
 
         # read data with dataloader api
         data_frame = KittiData(data_root_dir, index_name, output_dict)
-        # print(data_frame.read_data())
+        calib, _, _, _, _ = data_frame.read_data()
+
+        # store the list of kittiObjet and kittiCalib
+        data_frame.calib = calib
+
+        frames[i] = data_frame
+
+    print("test split finished precomputing")
+    return frames
+
+def preprocess_test_sequence_dataset(cfg, index_names, data_root_dir, output_dict):
+
+    frames = [None] * len(index_names)
+    print("start reading testing data")
+
+    for i, index_name in enumerate(index_names):
+
+        # read data with dataloader api
+        data_frame = KittiData(data_root_dir, index_name, output_dict)
+        data_frame.calib_path  = os.path.join(data_root_dir, "calib"   , f"{index_name.split('/')[0]}.txt")
+        data_frame.image2_path = os.path.join(data_root_dir, "image_02", index_name + '.png')
+
         calib, _, _, _, _ = data_frame.read_data()
 
         # store the list of kittiObjet and kittiCalib

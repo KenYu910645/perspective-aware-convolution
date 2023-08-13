@@ -1,17 +1,36 @@
 ################
 ### Training ###
 ################
+# python scripts/train.py --cfg_path="config/pac/pac_module.py"
 # python scripts/train.py --cfg_path="config/pac/baseline.py"
 # python scripts/train.py --cfg_path="config/scene-aware/kitti_seg_solid_10_obj_3_zJitter_sceneAware.py"
-python scripts/train.py --cfg_path="config/das/das.py"
+# python scripts/train.py --cfg_path="config/das/das.py"
 
 ##################
 ### Evaluation ###
 ##################
-# python ./scripts/test.py --cfg_path="config/pac_new/pac_module.py" \
+
+# python ./scripts/test.py --cfg_path="config/pac/pac_module.py" \
 #                          --gpu=0 \
-#                          --checkpoint_path="exp_output/pac_new/pac_module/checkpoint/Yolo3D_latest.pth" \
+#                          --checkpoint_path="exp_output/pac/pac_module/checkpoint/Yolo3D_latest.pth" \
+#                          --split_to_test="val" \
+
+# python ./scripts/test.py --cfg_path="config/pac/pac_module.py" \
+#                          --gpu=0 \
+#                          --checkpoint_path="exp_output/pac/pac_module/checkpoint/Yolo3D_latest.pth" \
 #                          --split_to_test="test" \
+
+# Sequance
+# python ./scripts/test.py --cfg_path="config/pac/pac_module.py" \
+#                          --gpu=0 \
+#                          --checkpoint_path="exp_output/pac/pac_module/checkpoint/Yolo3D_latest.pth" \
+#                          --split_to_test="test_sequence" \
+
+# python scripts/evaluation.py \
+# --label_path="dataset/kitti/training/label_2" \
+# --result_path="prediction_result/ground_aware_prediction/" \
+# --label_split_file="visualDet3D/data/kitti_data_split/kitti_anchor_gen_split/val_all.txt" \
+# --is_ap_crit=True
 
 # ./launchers/det_precompute.sh config/baseline.py train
 # ./launchers/eval.sh config/baseline.py 0 /home/lab530/KenYu/visualDet3D/exp_output/baseline_gac_original/Mono3D/checkpoint/GroundAwareYolo3D_latest.pth validation

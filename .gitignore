@@ -5,3 +5,5 @@ anchor/
 exp_output/*
 dataset/*
 *__pycache__/
+prediction_result/*
+viz_result/*

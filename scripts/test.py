@@ -1,5 +1,3 @@
-import matplotlib # Disable GUI
-matplotlib.use('agg')
 import os
 import time
 import fire
@@ -14,7 +12,7 @@ from visualDet3D.networks.detectors.yolo3d_detector import Yolo3D
 from visualDet3D.utils.utils import cfg_from_file
 from visualDet3D.evaluator.evaluators import evaluate_kitti_obj, test_one
 from visualDet3D.data.kitti_dataset import KittiDataset, KittiTestDataset
-from visualDet3D.data.preprocess import preprocess_train_dataset, process_train_val_file, preprocess_test_dataset, preprocess_val_dataset
+from visualDet3D.data.preprocess import preprocess_test_sequence_dataset, preprocess_train_dataset, process_train_val_file, preprocess_test_dataset, preprocess_val_dataset
 from visualDet3D.utils.cal import BBox3dProjector, BackProjection
 
 def main(cfg_path:str="config/project_name/exp_name.py",
@@ -57,7 +55,7 @@ def main(cfg_path:str="config/project_name/exp_name.py",
         imdb_frames_val = preprocess_val_dataset(cfg, val_names, cfg.data.train_data_path, output_dict)
         dataset = KittiDataset(cfg, imdb_frames_val, "validation")
     
-    elif split_to_test == 'test':
+    elif split_to_test == 'test': # KITTI testset
         list_calib = os.listdir( os.path.join(cfg.data.test_data_path, "calib") )
         test_names = [i.split('.')[0] for i in list_calib]
         output_dict = {
@@ -67,6 +65,25 @@ def main(cfg_path:str="config/project_name/exp_name.py",
                     "velodyne": False,
                     "depth": False,}
         imdb_frames_test = preprocess_test_dataset(cfg, test_names, cfg.data.test_data_path, output_dict)
+        dataset = KittiTestDataset(cfg, imdb_frames_test, "test")
+    
+    elif split_to_test == 'test_sequence':
+        list_calib = os.listdir( os.path.join(cfg.data.test_data_path, "calib") )
+
+        seq_names = os.listdir( os.path.join(cfg.data.test_data_path, "image_02" ) )
+
+        # Get test nemas
+        test_names = []
+        for seq_name in seq_names:
+            test_names += [seq_name + "/" + i.split('.')[0] for i in os.listdir( os.path.join(cfg.data.test_data_path, "image_02", seq_name) ) ]
+
+        output_dict = {
+                    "calib": True,
+                    "image": False,
+                    "label": False,
+                    "velodyne": False,
+                    "depth": False,}
+        imdb_frames_test = preprocess_test_sequence_dataset(cfg, test_names, cfg.data.test_data_path, output_dict)
         dataset = KittiTestDataset(cfg, imdb_frames_test, "test")
     
     else:
@@ -90,6 +107,8 @@ def main(cfg_path:str="config/project_name/exp_name.py",
             output_path = os.path.join(cfg.path.preprocessed_path, "validation", "data")
         elif split_to_test == "test":
             output_path = os.path.join(cfg.path.preprocessed_path, "testing", "data")
+        elif split_to_test == "test_sequence":
+            output_path = os.path.join(cfg.path.preprocessed_path, "test_sequence")
     
     if os.path.isdir(output_path):
         os.system("rm -r {}".format(output_path))
@@ -103,7 +122,11 @@ def main(cfg_path:str="config/project_name/exp_name.py",
         eval_result = evaluate_kitti_obj(cfg, detector, dataset, None, 0, output_path = output_path)
     else:
         # Only inference on testing dataset
-        fn_list = [i.split('.')[0] for i in os.listdir( os.path.join(cfg.data.test_data_path, "image_2"))]
+        if split_to_test == "test":
+            fn_list = [i.split('.')[0] for i in os.listdir( os.path.join(cfg.data.test_data_path, "image_2"))]
+        
+        elif split_to_test == "test_sequence":
+            fn_list = [i.replace('/', '_') for i in test_names]
         
         assert len(fn_list) == len(dataset), f'Number of validation data are not matched. fn_list has {len(fn_list)} files, but dataset_val has {len(dataset_val)} files'
         

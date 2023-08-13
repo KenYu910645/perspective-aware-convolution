@@ -1,8 +1,6 @@
 import os
 import numpy as np
 from PIL import Image
-from numba import jit
-from numpy.linalg import inv
 import cv2
 
 def read_pc_from_bin(bin_path):
@@ -29,56 +27,6 @@ def read_depth(path:str)->np.ndarray:
         depth image: floating image [H, W]
     """
     return (cv2.imread(path, -1)) / 256.0
-
-@jit(nopython=True, cache=True)
-def _leftcam2lidar(pts, Tr_velo_to_cam, R0_rect):
-    '''
-    transform the pts from the left camera frame to lidar frame
-    pts_lidar  = Tr_velo_to_cam^{-1} @ R0_rect^{-1} @ pts_cam
-    inputs:
-        pts(np.array): [#pts, 3]
-            points in the left camera frame
-        Tr_velo_to_cam:[4, 4]
-        R0_rect:[4, 4]
-    '''
-
-    hfiller = np.expand_dims(np.ones(pts.shape[0]), axis=1)
-    pts_hT = np.ascontiguousarray(np.hstack((pts, hfiller)).T) #(4, #pts) 
-    pts_lidar_T = np.ascontiguousarray(inv(Tr_velo_to_cam)) @ np.ascontiguousarray(inv(R0_rect)) @ pts_hT # (4, #pts)
-    pts_lidar = np.ascontiguousarray(pts_lidar_T.T) # (#pts, 4)
-    return pts_lidar[:, :3]
-
-@jit(nopython=True, cache=True)
-def _lidar2leftcam(pts, Tr_velo_to_cam, R0_rect):
-    '''
-    transform the pts from the lidar frame to the left camera frame
-    pts_cam = R0_rect @ Tr_velo_to_cam @ pts_lidar
-    inputs:
-        pts(np.array): [#pts, 3]
-            points in the lidar frame
-    '''
-    hfiller = np.expand_dims(np.ones(pts.shape[0]), axis=1)
-    pts_hT = np.hstack((pts, hfiller)).T #(4, #pts)
-    pts_cam_T = R0_rect @ Tr_velo_to_cam @ pts_hT # (4, #pts)
-    pts_cam = pts_cam_T.T # (#pts, 4)
-    return pts_cam[:, :3]
-
-@jit(nopython=True, cache=True)
-def _leftcam2imgplane(pts, P2):
-    '''
-    project the pts from the left camera frame to left camera plane
-    pixels = P2 @ pts_cam
-    inputs:
-        pts(np.array): [#pts, 3]
-        points in the left camera frame
-    '''
-    hfiller = np.expand_dims(np.ones(pts.shape[0]), axis=1)
-    pts_hT = np.hstack((pts, hfiller)).T #(4, #pts)
-    pixels_T = P2 @ pts_hT #(3, #pts)
-    pixels = pixels_T.T
-    pixels[:, 0] /= pixels[:, 2] + 1e-6
-    pixels[:, 1] /= pixels[:, 2] + 1e-6
-    return pixels[:, :2]
 
 # spiderkiller changed index to name because index serve no purpose
 def write_result_to_file(base_result_path:str, 
@@ -130,7 +78,6 @@ def write_result_to_file(base_result_path:str,
     file.write(text_to_write)
     file.close()
 
-# KITTI
 class KittiCalib:
     '''
     class storing KITTI calib data
@@ -140,75 +87,24 @@ class KittiCalib:
     '''
     def __init__(self, calib_path):
         self.path = calib_path
-        self.data = None
 
-    def read_calib_file(self):
-        '''
-        read KITTI calib file
-        '''
         calib = dict()
         with open(self.path, 'r') as f:
             str_list = f.readlines()
+        
         str_list = [itm.rstrip() for itm in str_list if itm != '\n']
+
+        str_list = str_list[:4] # Filter the last three lines
+
         for itm in str_list:
             calib[itm.split(':')[0]] = itm.split(':')[1]
         for k, v in calib.items():
             calib[k] = [float(itm) for itm in v.split()]
         self.data = calib
 
+        # Get P2 and P3
         self.P2 = np.array(self.data['P2']).reshape(3,4)
         self.P3 = np.array(self.data['P3']).reshape(3,4)
-
-        R0_rect = np.zeros([4, 4])
-        R0_rect[0:3, 0:3] = np.array(self.data['R0_rect']).reshape(3, 3)
-        R0_rect[3, 3] = 1
-        self.R0_rect = R0_rect
-
-        Tr_velo_to_cam = np.zeros([4, 4])
-        Tr_velo_to_cam[0:3, :] = np.array(self.data['Tr_velo_to_cam']).reshape(3, 4)
-        Tr_velo_to_cam[3, 3] = 1
-        self.Tr_velo_to_cam = Tr_velo_to_cam
-
-        return self
-    
-    def leftcam2lidar(self, pts):
-        '''
-        transform the pts from the left camera frame to lidar frame
-        pts_lidar  = Tr_velo_to_cam^{-1} @ R0_rect^{-1} @ pts_cam
-        inputs:
-            pts(np.array): [#pts, 3]
-                points in the left camera frame
-        '''
-        if self.data is None:
-            print("read_calib_file should be read first")
-            raise RuntimeError
-        return _leftcam2lidar(pts, self.Tr_velo_to_cam, self.R0_rect)
-
-    def lidar2leftcam(self, pts):
-        '''
-        transform the pts from the lidar frame to the left camera frame
-        pts_cam = R0_rect @ Tr_velo_to_cam @ pts_lidar
-        inputs:
-            pts(np.array): [#pts, 3]
-                points in the lidar frame
-        '''
-        if self.data is None:
-            print("read_calib_file should be read first")
-            raise RuntimeError
-        return _lidar2leftcam(pts, self.Tr_velo_to_cam, self.R0_rect)
-
-    def leftcam2imgplane(self, pts):
-        '''
-        project the pts from the left camera frame to left camera plane
-        pixels = P2 @ pts_cam
-        inputs:
-            pts(np.array): [#pts, 3]
-            points in the left camera frame
-        '''
-        if self.data is None:
-            print("read_calib_file should be read first")
-            raise RuntimeError
-        return _leftcam2imgplane(pts, self.P2)
 
 class KittiLabel:
     '''
@@ -234,9 +130,6 @@ class KittiLabel:
         return self
 
     def __str__(self):
-        '''
-        TODO: Unit TEST
-        '''
         s = ''
         for obj in self.data:
             s += obj.__str__() + '\n'
@@ -363,7 +256,8 @@ class KittiData:
                       |
                 y<----.z
         '''
-        calib = KittiCalib(self.calib_path).read_calib_file()     if self.output_dict["calib"]    else None
+        # calib = KittiCalib(self.calib_path).read_calib_file()     if self.output_dict["calib"]    else None
+        calib = KittiCalib(self.calib_path)                       if self.output_dict["calib"]    else None
         image = read_image(self.image2_path)                      if self.output_dict["image"]    else None
         label = KittiLabel(self.label2_path).read_label_file()    if self.output_dict["label"]    else None
         pc    = read_pc_from_bin(self.velodyne_path)              if self.output_dict["velodyne"] else None
@@ -374,14 +268,3 @@ class KittiData:
             return calib, image, image_3, label, pc, depth
         else:
             return calib, image, label, pc, depth
-
-if __name__ == "__main__":
-    pts, Tr_velo_to_cam, R0_rect = np.zeros([10, 3]), np.eye(4), np.eye(4)
-
-    points = _leftcam2lidar(pts, Tr_velo_to_cam, R0_rect)
-    points = _lidar2leftcam(pts, Tr_velo_to_cam, R0_rect)
-
-    P2 = np.zeros([3, 4])
-    pixels = _leftcam2imgplane(pts, P2)
-
-    print(points.shape)
