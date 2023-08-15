@@ -7,9 +7,9 @@ from matplotlib.gridspec import GridSpec
 from PIL import Image
 from shutil import rmtree
 
-IS_LABELED = False # visualize groundtruth bbox
-IS_SEQUENCE = True # 
-IS_SHOW_METHOD_NAME = False 
+IS_LABELED = True # visualize groundtruth bbox
+IS_SEQUENCE = False # 
+IS_SHOW_METHOD_NAME = True 
 
 # KITTI's categories
 OBJ_COLOR = {'Cyclist'    : 'yellow', 
@@ -20,14 +20,17 @@ OBJ_COLOR = {'Cyclist'    : 'yellow',
              'Car'        : 'green'}
 VEHICLES = ['Car']
 
-KITTI_TRAIN_PATH = "../dataset/kitti_tracking/training/"
-OUTPUT_DIR = "../viz_result/kitti_test_sequence/"
+KITTI_TRAIN_PATH = "../dataset/kitti/training/"
+OUTPUT_DIR = "../viz_result/with_and_wo_pac/"
 
-# KITTI_test_sequence
-PRED_DIRS = [("Ours", "../exp_output/pac/pac_module/output/test_sequence/")]
+# KITTI_test_sequence output
+# KITTI_TRAIN_PATH = "../dataset/kitti_tracking/training/"
+# OUTPUT_DIR = "../viz_result/kitti_test_sequence/"
+# PRED_DIRS = [("Ours", "../exp_output/pac/pac_module/output/test_sequence/")]
 
 # GAC
-# PRED_DIRS = [("GAC", "../exp_output/pac/baseline/output/validation/data")]
+PRED_DIRS = [("Ground-aware", "../prediction_result/ground_aware_prediction/"),
+             ("Ours"        , "../prediction_result/ours_prediction/")]
 
 # KITTI 3D Object Detection Comparasion
 # PRED_DIRS = [("SMOKE"        , "../prediction_result/smoke_prediction/"),

@@ -6,13 +6,12 @@
 # python scripts/train.py --cfg_path="config/scene-aware/kitti_seg_solid_10_obj_3_zJitter_sceneAware.py"
 # python scripts/train.py --cfg_path="config/das/das.py"
 
-##################
-### Evaluation ###
-##################
-
+#################
+### Inference ###
+#################
 # python ./scripts/test.py --cfg_path="config/pac/pac_module.py" \
 #                          --gpu=0 \
-#                          --checkpoint_path="exp_output/pac/pac_module/checkpoint/Yolo3D_latest.pth" \
+#                          --checkpoint_path="exp_output/pac/pac_module/checkpoint/Yolo3D_24.pth" \
 #                          --split_to_test="val" \
 
 # python ./scripts/test.py --cfg_path="config/pac/pac_module.py" \
@@ -26,23 +25,21 @@
 #                          --checkpoint_path="exp_output/pac/pac_module/checkpoint/Yolo3D_latest.pth" \
 #                          --split_to_test="test_sequence" \
 
+##################
+### Evaluation ###
+##################
 # python scripts/evaluation.py \
 # --label_path="dataset/kitti/training/label_2" \
 # --result_path="prediction_result/ground_aware_prediction/" \
 # --label_split_file="visualDet3D/data/kitti_data_split/kitti_anchor_gen_split/val_all.txt" \
-# --is_ap_crit=True
+# --is_ap_crit=False
 
-# ./launchers/det_precompute.sh config/baseline.py train
-# ./launchers/eval.sh config/baseline.py 0 /home/lab530/KenYu/visualDet3D/exp_output/baseline_gac_original/Mono3D/checkpoint/GroundAwareYolo3D_latest.pth validation
+# python scripts/evaluation.py \
+# --label_path="dataset/kitti/training/label_2" \
+# --result_path="prediction_result/ours_prediction/" \
+# --label_split_file="visualDet3D/data/kitti_data_split/kitti_anchor_gen_split/val_all.txt" \
+# --is_ap_crit=False
 
-# ./launchers/det_precompute.sh config/loss/noam_combine_regress.py train
-# ./launchers/eval.sh config/loss/noam_combine_regress.py 1 /home/lab530/KenYu/visualDet3D/exp_output/loss/Mono3D/checkpoint/GroundAwareYolo3D_latest.pth validation
-
-# ./launchers/det_precompute.sh config/loss/noam.py train
-# ./launchers/train.sh config/loss/noam.py 0 noam
-
-# ./launchers/det_precompute.sh config/best/fpn_kmeans18_large_only.py train
-# ./launchers/train.sh config/best/fpn_kmeans18_large_only.py 1 fpn_kmeans18_large_only
 
 #####################
 ### Visualization ###
@@ -52,7 +49,15 @@
 ### Inference ###
 #################
 
+######################
+### Sequence2Video ###
+######################
 
+# python scripts/sequance2video.py \
+# --squence_dir="viz_result/kitti_test_sequence" \
+# --output_path="viz_result/video/1_5_18.avi"
+
+####################################################################################################################################
 # Evaluation on testing set( a single image)
 # ./launchers/det_precompute.sh config/mixup/kitti_mixup_1.py test
 # ./launchers/eval.sh config/mixup/kitti_mixup_1.py 0 /home/lab530/KenYu/visualDet3D/exp_output/mixup/kitti_mixup_1/Mono3D/checkpoint/GroundAwareYolo3D_latest.pth test
