@@ -1,67 +1,16 @@
-RTX Geforce 3090
-Ubuntu 20.02
-conda create -n pac python=3.10
-conda activate pac
-conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia
+# Perspective-aware Convolution for Monocular 3D object detection
+Jia-Quan Yu, Soo-Chang Pei
 
-# Visual 3D Detection Package:
-
-This repo aims to provide flexible and reproducible visual 3D detection on KITTI dataset. We expect scripts starting from the current directory, and treat ./visualDet3D as a package that we could modify and test directly instead of a library. Several useful scripts are provided in the main directory for easy usage.
-
-We believe that visual tasks are interconnected, so we make this library extensible to more experiments. 
-The package uses registry to register datasets, models, processing functions and more, allowing easy inserting of new tasks/models while not interfere with the existing ones.
-
-## Related Paper:
-
-This repo contains the official implementation of 2021 *RAL* \& *ICRA* paper [**Ground-aware Monocular 3D Object Detection for Autonomous Driving**](https://ieeexplore.ieee.org/document/9327478). [Arxiv Page](https://arxiv.org/abs/2102.00690). Pretrained model can be found at [release pages](https://github.com/Owen-Liuyuxuan/visualDet3D/releases/tag/1.0).
-```
-@ARTICLE{9327478,
-  author={Y. {Liu} and Y. {Yuan} and M. {Liu}},
-  journal={IEEE Robotics and Automation Letters}, 
-  title={Ground-aware Monocular 3D Object Detection for Autonomous Driving}, 
-  year={2021},
-  doi={10.1109/LRA.2021.3052442}}
-```
-
-Also the official implementation of 2021 *ICRA* paper [**YOLOStereo3D: A Step Back to 2D for Efficient Stereo 3D Detection**](https://arxiv.org/abs/2103.09422). Pretrained model can be found at [release pages](https://github.com/Owen-Liuyuxuan/visualDet3D/releases/tag/1.1).
-```
-@inproceedings{liu2021yolostereo3d,
-  title={YOLOStereo3D: A Step Back to 2D for Efficient Stereo 3D Detection},
-  author={Yuxuan Liu and Lujia Wang and Ming, Liu},
-  booktitle={2021 International Conference on Robotics and Automation (ICRA)},
-  year={2021},
-  organization={IEEE}
-}
-```
-
-We further incorperate an *Unofficial* re-implementation of **Monocular 3D Detection with Geometric Constraints Embedding and Semi-supervised Training** (KM3D) as a reference on how to integrate with other frameworks. (Notice that the codes are from the [originally official repo](https://github.com/Banconxuan/RTM3D), and we **DO NOT** guarantee a complete re-implementation).
-
-Update (2021.07.02): We provide an *Unofficial* re-implementation of **Objects are Different: Flexible Monocular 3D Object Detection** (MonoFlex) with few additional codes, based on the KM3D structure. Many of the core codes are from [original official repo](https://github.com/zhangyp15/MonoFlex). We did not implement the edge merge operation and the corner loss, but we manage to maintain most of the performance based on the proposed depth fusion methods(validation AP reaches 15%).
-
-Update (2021.12.11): We provide an *Unofficial* re-implmentation of **Digging Into Output Representation For Monocular 3D Object Detection** (Digging_M3D) to introduce an simple but important numerical trick to significantly improve the KITTI mAP scores and make a significant change to the KITTI leaderboard. Details can be found in the [paper](https://openreview.net/forum?id=mPlm356yMIP). At the time of the open-source, the paper has not been officially published, and we will keep up with the update of the paper.
-
-## Key Features
-
-- **SOTA Performance** State of the art result on visual 3D detection.
-- **Modular Design** Modular design for dataset, network and running pipelines.
-- **Support Various Task** Compatible with the training and testing of mono/stereo 3D detection and depth prediction.
-- **Distributed & Single GPU** Support training with multiple GPUs.
-- **Installation-Free Setup** The setup process only build operations and does not require installation to keep the environment clean.
-- **Global Path-based IMDB** Do not need data placed inside the folder, convienient for managing data and code separately.
+[[`arXiv`](https://arxiv.org/abs/1911.10194)]
 
 
-We provide start-up solutions for [Mono3D](docs/mono3d.md), [Stereo3D](docs/stereo3d.md), [Depth Predictions](docs/monoDepth.md) and more (until further publication).
+<div align="center">
+  <img src="doc/architecture.png"/>
+</div><br/>
 
-Reference: this repo borrows codes and ideas from [retinanet](https://github.com/yhenon/pytorch-retinanet),
-[mmdetection](https://github.com/open-mmlab/mmdetection),
-[M3D-RPN](https://github.com/garrickbrazil/M3D-RPN),
-[DORN](https://github.com/dontLoveBugs/SupervisedDepthPrediction),
-[EdgeNets](https://github.com/sacmehta/EdgeNets),
-[det3](https://github.com/pyun-ram/FL3D)
+[![PAC demo video on KITTI](https://www.youtube.com/watch?v=avHUyR5P6o4/0.jpg)](https://www.youtube.com/watch?v=avHUyR5P6o4)
 
-## Setup
-### Environment setup. 
-
+## Installation
 ```bash
 pip install -r requirement.txt
 ```
@@ -71,46 +20,57 @@ or manually check dependencies.
 # build ops (deform convs and iou3d), We will not install operations into the system environment
 ./make.sh
 ```
+## Environment
+OS: Ubuntu 20.04.6 LTS \
+GPU: RTX Geforce 3090 \
+python : 3.10.12 \
+pytorch : 2.0.1 \
+cuda1 : 11.7 \
+torchvision: 0.15.2
 
-## Start Training
+## Training
+Train with baseline settings(Ground-aware network)
+```
+python scripts/train.py --cfg_path="config/pac/baseline.py"
+```
 
-Please check the corresponding task: [Mono3D](docs/mono3d.md), [Stereo3D](docs/stereo3d.md), [Depth Predictions](docs/monoDepth.md). More demo will be available through contributions and further paper submission.
+Train with perspective-aware convolution module
+```
+python scripts/train.py --cfg_path="config/pac/pac_module.py"
+```
+Train with scene-aware copy-paste data augmentation method
+```
+python scripts/train.py --cfg_path="config/scene-aware/kitti_seg_solid_10_obj_3_zJitter_sceneAware.py"
+```
+Train with depth-aware anchor generation method
+```
+python scripts/train.py --cfg_path="config/das/das.py"
+``` 
 
-### Config and Path setup. 
+## Evaluate on validation set
+```
+python ./scripts/test.py --cfg_path="config/pac/pac_module.py" \
+                         --gpu=0 \
+                         --checkpoint_path="exp_output/pac/pac_module/checkpoint/Yolo3D_24.pth" \
+                         --split_to_test="val" \
+```
+## Inference on test set (no label)
+```
+python ./scripts/test.py --cfg_path="config/pac/pac_module.py" \
+                         --gpu=0 \
+                         --checkpoint_path="exp_output/pac/pac_module/checkpoint/Yolo3D_latest.pth" \
+                         --split_to_test="test" \
+```
+## Inference on test sequence (no label)
+```bash
+python ./scripts/test.py --cfg_path="config/pac/pac_module.py" \
+                         --gpu=0 \
+                         --checkpoint_path="exp_output/pac/pac_module/checkpoint/Yolo3D_latest.pth" \
+                         --split_to_test="test_sequence" \
+```
 
-Please modify the path and other parameters in **config/\*.py**. **config/\*_example** files are templates.
 
-**Notice**:
-*_examples are **NOT** utilized by the code and \*.py under /config is **ignored** by .gitignore.
-
-The content of the selected config file will be recorded in tensorboard at the beginning of training.
-
-**important paths to modify in config** :
-1. cfg.path.data_path: Path to KITTI training data. We expect calib, image_2, image_3, label_2 being the subfolder (directly unzipping the downloaded zips will be fine)
-2. cfg.path.test_path: Path to KITTI testing data.  We expect calib, image_2 being the subfolder.
-3. cfg.path.visualDet3D_path: Path to the "visualDet3D" directorty of the current repo
-4. cfg.path.project_path: Path to the workdirs of the projects (will have temp_outputs, log, checkpoints)
-
-Please check the template's comments and other comments in codes to fully exploit the repo.
-
-## Further Info and Bug Issues
-
-1. Open issues on the repo if you meet troubles or find a bug or have some suggestions.
-2. Email to yliuhb@connect.ust.hk
-
-
-## Other Resources
-
-- [RAM-LAB](https://www.ram-lab.com)
-- [Collections of Papers and Readings](https://owen-liuyuxuan.github.io/papers_reading_sharing.github.io/);
--  [Collection for Mono3D](https://owen-liuyuxuan.github.io/papers_reading_sharing.github.io/3dDetection/RecentCollectionForMono3D/); [Ground-Aware 3D](https://owen-liuyuxuan.github.io/papers_reading_sharing.github.io/3dDetection/GroundAwareConvultion/)
-- [Collection for Stereo3D](https://owen-liuyuxuan.github.io/papers_reading_sharing.github.io/3dDetection/RecentCollectionForStereo3D/); [YOLOStereo3D](https://owen-liuyuxuan.github.io/papers_reading_sharing.github.io/3dDetection/YOLOStereo3D/)
-
-## Related Codes
-
-- [MMDetection](https://github.com/open-mmlab/mmdetection)
-- [M3D-RPN](https://github.com/garrickbrazil/M3D-RPN)
-- [Retinanet](https://github.com/yhenon/pytorch-retinanet)
-- [DORN](https://github.com/dontLoveBugs/SupervisedDepthPrediction)
-- [det3](https://github.com/pyun-ram/FL3D)
-- [RTM3D](https://github.com/Banconxuan/RTM3D)
+## Demo result
+<div align="center">
+  <img src="doc/000053.png"/>
+</div><br/>
