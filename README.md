@@ -8,7 +8,14 @@ Jia-Quan Yu, Soo-Chang Pei
   <img src="doc/architecture.png"/>
 </div><br/>
 
-[![PAC demo video on KITTI](https://www.youtube.com/watch?v=avHUyR5P6o4/0.jpg)](https://www.youtube.com/watch?v=avHUyR5P6o4)
+<div align="center">
+  <img src="doc/pac_and_ASPP.png"/>
+</div><br/>
+
+## Demo Video
+
+[![PAC demo video on KITTI](https://img.youtube.com/vi/avHUyR5P6o4/0.jpg)](https://www.youtube.com/watch?v=avHUyR5P6o4)
+
 
 ## Installation
 ```bash
