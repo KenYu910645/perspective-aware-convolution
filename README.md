@@ -1,8 +1,7 @@
 # Perspective-aware Convolution for Monocular 3D object detection
 Jia-Quan Yu, Soo-Chang Pei
 
-[[`arXiv`](https://arxiv.org/abs/1911.10194)]
-
+[[`arXiv`](https://arxiv.org/abs/2308.12938)]
 
 <div align="center">
   <img src="doc/architecture.png"/>
